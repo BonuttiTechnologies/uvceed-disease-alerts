@@ -1,0 +1,103 @@
+python -m uvceed_alerts.cdc_nssp_ed_trajectories 60614 --pathogen flu --weeks 16
+python -m uvceed_alerts.cdc_nssp_ed_trajectories 60614 --pathogen combined --weeks 16
+python -m uvceed_alerts.cdc_nssp_ed_trajectories 62401 --pathogen rsv --weeks 16
+NSSP ED Visits (Trajectories / numeric) — CDC Socrata dataset rdmq-nq56
+State input: IL -> geography='Illinois'
+
+Columns (18): buildnumber, county, ed_trends_covid, ed_trends_influenza, ed_trends_rsv, fips, geography, hsa, hsa_counties, hsa_nci_id, percent_visits_covid, percent_visits_influenza, percent_visits_rsv, percent_visits_smoothed_1, percent_visits_smoothed_covid, percent_visits_smoothed_rsv, trend_source, week_end
+
+Example rows (up to 5):
+- week_end=2026-01-24T00:00:00.000 county=Alexander hsa=Union, IL - Alexander, IL covid=0.66 flu=1.32 rsv=0.0
+- week_end=2026-01-24T00:00:00.000 county=All hsa=All covid=1.33 flu=3.28 rsv=0.68
+- week_end=2026-01-24T00:00:00.000 county=Cass hsa=Sangamon (Springfield), IL - Christian, IL covid=1.26 flu=4.25 rsv=0.91
+- week_end=2026-01-24T00:00:00.000 county=Champaign hsa=Champaign (Champaign), IL - Coles, IL covid=0.62 flu=2.46 rsv=0.25
+- week_end=2026-01-24T00:00:00.000 county=Christian hsa=Sangamon (Springfield), IL - Christian, IL covid=1.26 flu=4.25 rsv=0.91
+
+Strict state-level row check (geography + county='All'):
+- strict rows returned: 30
+- most recent strict row:
+  week_end=2026-01-24T00:00:00.000 covid=1.33 flu=3.28 rsv=0.68
+ZIP: 60614 -> Chicago, Illinois (IL)
+County: Cook County | FIPS: 17031
+
+CDC NSSP ED Visit Trajectories (weekly percent ED visits) — numeric signal
+Dataset: rdmq-nq56
+Region: IL (geography='Illinois')
+Pathogen: flu
+Metric used: percent_visits
+Lookback used: 16 weeks
+Recent points shown: 12
+Last-3 median: 3.28
+Prev-3 median: 6.87
+Risk: high | Trend: falling | Confidence: high
+
+
+Most recent weeks:
+- 2026-01-24 | 3.28
+- 2026-01-17 | 3.19
+- 2026-01-10 | 4.33
+- 2026-01-03 | 6.87
+- 2025-12-27 | 9.01
+- 2025-12-20 | 5.04
+- 2025-12-13 | 2.06
+- 2025-12-06 | 1.10
+- 2025-11-29 | 0.87
+- 2025-11-22 | 0.57
+- 2025-11-15 | 0.38
+- 2025-11-08 | 0.23
+ZIP: 60614 -> Chicago, Illinois (IL)
+County: Cook County | FIPS: 17031
+
+CDC NSSP ED Visit Trajectories (weekly percent ED visits) — numeric signal
+Dataset: rdmq-nq56
+Region: IL (geography='Illinois')
+Pathogen: combined
+Metric used: percent_visits_sum(covid+flu+rsv)
+Lookback used: 16 weeks
+Recent points shown: 12
+Last-3 median: 5.33
+Prev-3 median: 9.68
+Risk: moderate | Trend: falling | Confidence: high
+
+
+Most recent weeks:
+- 2026-01-24 | 5.29
+- 2026-01-17 | 5.33
+- 2026-01-10 | 6.73
+- 2026-01-03 | 9.68
+- 2025-12-27 | 11.43
+- 2025-12-20 | 6.71
+- 2025-12-13 | 3.24
+- 2025-12-06 | 2.03
+- 2025-11-29 | 1.62
+- 2025-11-22 | 1.12
+- 2025-11-15 | 0.80
+- 2025-11-08 | 0.62
+ZIP: 62401 -> Effingham, Illinois (IL)
+County: Effingham County | FIPS: 17049
+
+CDC NSSP ED Visit Trajectories (weekly percent ED visits) — numeric signal
+Dataset: rdmq-nq56
+Region: IL (geography='Illinois')
+Pathogen: rsv
+Metric used: percent_visits
+Lookback used: 16 weeks
+Recent points shown: 12
+Last-3 median: 0.63
+Prev-3 median: 0.58
+Risk: low | Trend: flat | Confidence: high
+
+
+Most recent weeks:
+- 2026-01-24 | 0.68
+- 2026-01-17 | 0.63
+- 2026-01-10 | 0.55
+- 2026-01-03 | 0.66
+- 2025-12-27 | 0.58
+- 2025-12-20 | 0.46
+- 2025-12-13 | 0.27
+- 2025-12-06 | 0.20
+- 2025-11-29 | 0.17
+- 2025-11-22 | 0.13
+- 2025-11-15 | 0.06
+- 2025-11-08 | 0.06

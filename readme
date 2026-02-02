@@ -1,0 +1,305 @@
+```markdown
+# UVCeed Disease Alerts — CDC Wastewater (Option B)
+
+This repo/module provides a **ZIP-code → County FIPS** lookup and a **CDC NWSS wastewater ingestion pipeline** that produces:
+
+- Human-readable CLI output (for debugging / validation)
+- Machine-readable JSON output (for backend → app integration)
+- A confidence-aware **rollup** (“overall respiratory snapshot”)
+- Optional **persistence** to local JSON snapshots for time-series / auditing
+
+It is designed to support UVCeed’s goal of alerting users when **respiratory pathogen activity** (COVID, Flu A, RSV) is elevated in their area so they may choose to disinfect more.
+
+---
+
+## Directory layout (expected)
+
+```
+
+uvceed-disease-alerts/
+uvceed_alerts/
+**init**.py
+config.py
+geo.py
+wastewater_risk.py
+cdc_wastewater.py
+scripts/
+geo_smoke.py            # optional (dev test)
+requirements.txt
+README.md
+
+````
+
+---
+
+## Requirements
+
+Python 3.10+ recommended (3.11 works well).
+
+`requirements.txt` should include at least:
+
+- `requests`
+- `python-dateutil`
+- `python-dotenv` (optional, for future API keys / env config)
+- Any other dependencies you add later
+
+Example:
+
+```txt
+requests>=2.31.0
+python-dateutil>=2.9.0
+python-dotenv>=1.0.1
+````
+
+Install:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+---
+
+## Modules overview
+
+### `uvceed_alerts/geo.py`
+
+Resolves a ZIP code to:
+
+* City / state
+* County name
+* County FIPS
+
+This is used to scope CDC wastewater queries to the user’s county.
+
+Example:
+
+```bash
+python -m uvceed_alerts.geo 60614
+```
+
+Expected output:
+
+```
+ZIP: 60614
+Place: Chicago
+State: Illinois (IL)
+Lat/Lon: ...
+County: Cook County
+County FIPS: 17031
+```
+
+---
+
+### `uvceed_alerts/wastewater_risk.py`
+
+Contains the risk logic and adaptive window selection used by the CDC ingestion pipeline.
+
+Key responsibilities typically include:
+
+* Converting raw wastewater measurements into **daily medians**
+* Choosing a **window size** (60/90/120/180) based on how sparse the data is
+* Computing:
+
+  * `risk` (unknown / low / moderate / high)
+  * `trend` (rising / falling / stable / unknown)
+  * `confidence` (low / medium / high)
+  * `note` strings when trend is suppressed or data is missing
+
+---
+
+### `uvceed_alerts/cdc_wastewater.py`
+
+Primary ingestion script.
+
+**Data source:** CDC NWSS datasets hosted on Socrata (data.cdc.gov) using the SODA API.
+
+Supported pathogens and datasets:
+
+* `covid` → dataset `j9g8-acpt`, `pcr_target="sars-cov-2"`
+* `flu_a` → dataset `ymmh-divb`, `pcr_target="fluav"` ✅
+* `rsv` → dataset `45cq-cw4i`, `pcr_target="rsv"`
+
+This module adds:
+
+1. **Confidence-aware rollup messaging**
+
+   * Avoids aggressive “High activity detected” messaging when confidence is low due to sparse sampling.
+2. **`--json-only` mode**
+
+   * Outputs **only JSON** for cron jobs / backend ingestion.
+3. **Numeric scoring for backend tuning**
+
+   * per-pathogen and rollup numeric scores so UVCeed can adjust alert thresholds without rewriting logic.
+4. **Persistence**
+
+   * Writes JSON snapshots to disk for auditing and building a local time-series dataset.
+
+---
+
+## CLI usage
+
+### 1) Single pathogen (default COVID)
+
+```bash
+python -m uvceed_alerts.cdc_wastewater 60614
+```
+
+### 2) Specify pathogen
+
+```bash
+python -m uvceed_alerts.cdc_wastewater 60614 --pathogen flu_a --days 120
+python -m uvceed_alerts.cdc_wastewater 60614 --pathogen rsv  --days 120
+```
+
+### 3) Run all pathogens (recommended)
+
+```bash
+python -m uvceed_alerts.cdc_wastewater 60614 --all --days 120
+```
+
+### 4) Emit JSON snapshot (human output + JSON)
+
+```bash
+python -m uvceed_alerts.cdc_wastewater 60614 --all --json
+```
+
+### 5) Emit JSON only (ideal for scheduled jobs)
+
+```bash
+python -m uvceed_alerts.cdc_wastewater 60614 --all --json-only
+```
+
+### 6) Persist snapshots to disk
+
+```bash
+python -m uvceed_alerts.cdc_wastewater 60614 --all --json-only --persist
+```
+
+By default this writes to `./data/`:
+
+```
+data/
+  snapshots/
+    60614/
+      2026-01-19_083012_wastewater.json
+      latest_wastewater.json
+```
+
+You can change the output directory:
+
+```bash
+python -m uvceed_alerts.cdc_wastewater 60614 --all --json-only --persist --data-dir ./var
+```
+
+### 7) Inspect available PCR targets (debug)
+
+```bash
+python -m uvceed_alerts.cdc_wastewater 60614 --pathogen flu_a --list-targets
+python -m uvceed_alerts.cdc_wastewater 60614 --pathogen rsv   --list-targets
+```
+
+---
+
+## JSON schema (high level)
+
+When `--json` or `--json-only` is enabled, the program prints a single JSON object like:
+
+```json
+{
+  "zip_code": "60614",
+  "place": "Chicago",
+  "state_abbr": "IL",
+  "county_fips": "17031",
+  "generated_at": "2026-01-19T08:31:12",
+  "days_requested": 60,
+  "results": [
+    {
+      "pathogen": "covid",
+      "dataset_id": "j9g8-acpt",
+      "pcr_target": "sars-cov-2",
+      "window_days": 60,
+      "daily_points": 28,
+      "risk": "high",
+      "trend": "rising",
+      "confidence": "high",
+      "risk_score": 1.0,
+      "trend_score": 0.25,
+      "confidence_score": 1.0,
+      "composite_score": 1.0
+    }
+  ],
+  "rollup": {
+    "overall_level": "high",
+    "overall_trend": "rising",
+    "overall_confidence": "high",
+    "overall_score": 1.0,
+    "suggestion": "High respiratory activity detected in your area..."
+  }
+}
+```
+
+Notes:
+
+* `window_days` is the **adaptive window used**, which may differ from `days_requested`.
+* `composite_score` is a conservative numeric score in `[0..1]` intended for thresholding.
+
+---
+
+## Recommended backend integration approach (UVCeed)
+
+For production mobile apps, the recommended pattern is:
+
+1. Run `cdc_wastewater.py --all --json-only --persist` on a schedule (e.g., nightly) for relevant ZIPs or counties
+2. Store results in your backend database (or S3 JSON objects)
+3. The mobile app queries your backend, not CDC directly (reliability, caching, rate limiting, product control)
+4. Use `overall_score` + per-pathogen `composite_score` to tune alert thresholds over time.
+
+---
+
+## Troubleshooting
+
+### “No wastewater measurements in window”
+
+Some counties have no NWSS coverage, or only sporadic sampling. The script will:
+
+* Expand the window to 90/120/180 days when needed
+* Otherwise return `risk=unknown` / `confidence=low`
+
+### Confidence is low but risk is high
+
+This occurs when the few available samples are high relative to the window but data is sparse. The rollup message should be softened accordingly.
+
+---
+
+## Next milestones (suggested)
+
+* Add ingestion sources beyond wastewater:
+
+  * CDC NNDSS / ILINet (where accessible)
+  * State dashboards (varies by state)
+  * FDA / USDA recall feeds (foodborne risk)
+* Build a unified “Area Risk” model that blends:
+
+  * wastewater signal
+  * clinical incidence (when available)
+  * outbreak/recall events
+* Establish alert UX rules in the UVCeed app:
+
+  * show confidence
+  * explain what the signal means
+  * provide actionable disinfection guidance
+
+---
+
+## License / Data caveats
+
+* CDC data availability varies by geography and time.
+* Wastewater is a **population-level indicator**, not a guarantee of individual infection risk.
+* UVCeed alerts should be framed as “informational” and avoid clinical claims.
+
+```
+::contentReference[oaicite:0]{index=0}
+```
+
