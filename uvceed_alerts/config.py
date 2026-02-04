@@ -22,4 +22,4 @@ OPENFDA_API_KEY = os.getenv("OPENFDA_API_KEY", "")
 SOCRATA_APP_TOKEN = os.getenv("SOCRATA_APP_TOKEN", "")
 HUD_ZIP_API_KEY = os.getenv("HUD_ZIP_API_KEY", "")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-
+CDC_APP_TOKEN = os.getenv("CDC_APP_TOKEN", "") or SOCRATA_APP_TOKEN

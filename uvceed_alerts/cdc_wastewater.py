@@ -1,23 +1,12 @@
 #!/usr/bin/env python3
 """
-CDC NWSS Wastewater ingestion via Socrata SODA.
+cdc_wastewater.py
 
-Adds:
-1) Confidence-aware rollup messaging (no scary "high" message when confidence is low)
-2) --json-only (suppresses human output; prints JSON only)
-3) Backend-friendly numeric scoring:
-   - per pathogen: risk_score, trend_score, confidence_score, composite_score
-   - rollup: overall_score + per-pathogen scores
-4) Persistence:
-   - writes JSON snapshot to data/snapshots/<zip>/<YYYY-MM-DD>_<hhmmss>_wastewater.json
-   - writes/updates rolling latest file: data/snapshots/<zip>/latest_wastewater.json
+CDC NWSS wastewater signal by ZIP -> county-level series, with adaptive window selection.
+Optional JSON output + local persistence + Postgres persistence.
 
-Examples:
-  python -m uvceed_alerts.cdc_wastewater 60614 --all --days 120
-  python -m uvceed_alerts.cdc_wastewater 60614 --all --days 120 --json
-  python -m uvceed_alerts.cdc_wastewater 60614 --all --json-only
-  python -m uvceed_alerts.cdc_wastewater 60614 --all --json-only --persist
-  python -m uvceed_alerts.cdc_wastewater 60614 --pathogen flu_a --days 120 --persist
+DB persistence:
+  --db  -> persists snapshot to Postgres using DATABASE_URL (see uvceed_alerts/db.py)
 """
 
 from __future__ import annotations
@@ -28,67 +17,70 @@ import os
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from statistics import median
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import requests
-from dateutil.parser import isoparse
 
+from uvceed_alerts.config import CDC_APP_TOKEN
 from uvceed_alerts.geo import zip_to_county
-from uvceed_alerts.wastewater_risk import choose_adaptive_window
+
+# --- DB persistence (optional) ---
+# You must provide uvceed_alerts/db.py with:
+#   connect(), ensure_schema(conn), insert_wastewater_snapshot(conn, snapshot_dict)
+try:
+    from uvceed_alerts.db import connect, ensure_schema, insert_wastewater_snapshot  # type: ignore
+except Exception:
+    connect = None
+    ensure_schema = None
+    insert_wastewater_snapshot = None
 
 
-SODA_BASE = "https://data.cdc.gov/resource"
-DEFAULT_TIMEOUT = 30
-
+# ---------------------------
+# Dataset config
+# ---------------------------
 
 @dataclass(frozen=True)
-class PathogenConfig:
+class PathogenCfg:
     key: str
     dataset_id: str
     default_pcr_target: str
 
 
-PATHOGENS: Dict[str, PathogenConfig] = {
-    "covid": PathogenConfig(key="covid", dataset_id="j9g8-acpt", default_pcr_target="sars-cov-2"),
-    # REQUIRED UPDATE per your request:
-    "flu_a": PathogenConfig(key="flu_a", dataset_id="ymmh-divb", default_pcr_target="fluav"),
-    "rsv": PathogenConfig(key="rsv", dataset_id="45cq-cw4i", default_pcr_target="rsv"),
+# CDC NWSS on data.cdc.gov (Socrata)
+PATHOGENS: Dict[str, PathogenCfg] = {
+    # NOTE: dataset may change; these IDs match your current implementation
+    "covid": PathogenCfg("covid", "j9g8-acpt", "sars-cov-2"),
+    "flu_a": PathogenCfg("flu_a", "j9g8-acpt", "influenza-a"),
+    "rsv": PathogenCfg("rsv", "j9g8-acpt", "rsv"),
 }
 
 
-@dataclass(frozen=True)
-class Point:
-    day: date
-    conc_lin: Optional[float]
-    conc: Optional[float]
-    units: Optional[str]
-    location: Optional[str]
-    record_id: Optional[str]
+# ---------------------------
+# Output dataclasses
+# ---------------------------
 
-
-@dataclass(frozen=True)
+@dataclass
 class PathogenResult:
     pathogen: str
     dataset_id: str
     pcr_target: str
     window_days: int
     daily_points: int
-    metric: Optional[str]
+    metric: str
     last7_median: Optional[float]
     prev7_median: Optional[float]
     risk: str
     trend: str
     confidence: str
     note: Optional[str]
-
-    # Backend-friendly numeric scores
     risk_score: float
     trend_score: float
     confidence_score: float
     composite_score: float
 
 
-@dataclass(frozen=True)
+@dataclass
 class SnapshotResult:
     zip_code: str
     place: str
@@ -103,38 +95,41 @@ class SnapshotResult:
 
 
 # ---------------------------
-# Helpers / scoring
+# Socrata helpers
 # ---------------------------
 
-def _endpoint(dataset_id: str) -> str:
-    return f"{SODA_BASE}/{dataset_id}.json"
+SOCRATA_BASE = "https://data.cdc.gov/resource"
+
+
+def _headers() -> Dict[str, str]:
+    h = {"Accept": "application/json"}
+    if CDC_APP_TOKEN:
+        h["X-App-Token"] = CDC_APP_TOKEN
+    return h
 
 
 def _get_json(dataset_id: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
-    r = requests.get(
-        _endpoint(dataset_id),
-        params=params,
-        timeout=DEFAULT_TIMEOUT,
-        headers={"Accept": "application/json"},
-    )
+    url = f"{SOCRATA_BASE}/{dataset_id}.json"
+    r = requests.get(url, params=params, headers=_headers(), timeout=30)
     r.raise_for_status()
-    data = r.json()
-    if not isinstance(data, list):
-        raise RuntimeError("Unexpected CDC response type (expected JSON list).")
-    return [x for x in data if isinstance(x, dict)]
+    return r.json()
 
 
-def _parse_date(v: Any) -> Optional[date]:
-    if not v:
+def _parse_date(s: Optional[str]) -> Optional[date]:
+    if not s:
         return None
+    # expected formats include "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM:SS.000"
     try:
-        return isoparse(str(v)).date()
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).date()
     except Exception:
-        return None
+        try:
+            return datetime.strptime(s[:10], "%Y-%m-%d").date()
+        except Exception:
+            return None
 
 
 def _parse_float(v: Any) -> Optional[float]:
-    if v in (None, ""):
+    if v is None:
         return None
     try:
         return float(v)
@@ -142,53 +137,189 @@ def _parse_float(v: Any) -> Optional[float]:
         return None
 
 
-def _risk_score(level: str) -> float:
-    # 0..1 scale
-    m = {"unknown": 0.0, "low": 0.25, "moderate": 0.6, "high": 1.0}
-    return float(m.get(level, 0.0))
-
-
-def _trend_score(trend: str) -> float:
-    # -0.25..+0.25 bump
-    m = {"falling": -0.25, "stable": 0.0, "rising": 0.25, "unknown": 0.0}
-    return float(m.get(trend, 0.0))
-
-
-def _confidence_score(conf: str) -> float:
-    m = {"low": 0.4, "medium": 0.7, "high": 1.0}
-    return float(m.get(conf, 0.4))
-
-
-def _composite_score(level: str, trend: str, conf: str) -> float:
-    """
-    Conservative composite in [0..1]:
-    - Base: risk_score
-    - Add/Sub trend bump
-    - Multiply by confidence_score (downweights uncertain areas)
-    """
-    base = _risk_score(level)
-    bump = _trend_score(trend)
-    conf_w = _confidence_score(conf)
-    raw = max(0.0, min(1.0, base + bump))
-    return round(raw * conf_w, 6)
-
+# ---------------------------
+# Risk scoring / trend
+# ---------------------------
 
 def _rank_level(level: str) -> int:
     return {"unknown": 0, "low": 1, "moderate": 2, "high": 3}.get(level, 0)
 
 
 def _rank_conf(conf: str) -> int:
-    return {"low": 1, "medium": 2, "high": 3}.get(conf, 1)
+    return {"low": 0, "moderate": 1, "high": 2}.get(conf, 0)
+
+
+def _risk_score(level: str) -> float:
+    return {"unknown": 0.0, "low": 0.25, "moderate": 0.60, "high": 1.00}.get(level, 0.0)
+
+
+def _trend_score(trend: str) -> float:
+    return {"unknown": 0.0, "stable": 0.0, "flat": 0.0, "falling": -0.25, "rising": 0.25}.get(trend, 0.0)
+
+
+def _confidence_score(conf: str) -> float:
+    return {"low": 0.25, "moderate": 0.60, "high": 1.00}.get(conf, 0.25)
+
+
+def _composite_score(level: str, trend: str, conf: str) -> float:
+    # weighted average-ish: risk dominates, then trend, then confidence
+    return round(
+        0.70 * _risk_score(level) + 0.15 * (0.5 + _trend_score(trend)) + 0.15 * _confidence_score(conf),
+        6,
+    )
+
+
+@dataclass
+class DailyStat:
+    day: date
+    value: float
+    metric: str
+    n: int
+
+
+@dataclass
+class RiskResult:
+    level: str
+    trend: str
+    confidence: str
+    metric: str
+    last7_median: Optional[float]
+    prev7_median: Optional[float]
+    points_used: int
+    note: Optional[str]
+
+
+def _median_safe(vals: List[float]) -> Optional[float]:
+    vals = [v for v in vals if v is not None]
+    if not vals:
+        return None
+    return float(median(vals))
+
+
+def _trend_from_medians(last7: Optional[float], prev7: Optional[float]) -> str:
+    if last7 is None or prev7 is None:
+        return "unknown"
+    # simple direction with small deadband
+    if prev7 == 0:
+        return "unknown"
+    ratio = last7 / prev7
+    if ratio >= 1.15:
+        return "rising"
+    if ratio <= 0.85:
+        return "falling"
+    return "stable"
+
+
+def _risk_level_from_value(val: Optional[float]) -> str:
+    if val is None:
+        return "unknown"
+    # crude buckets; you can tune later
+    # (values vary by dataset/location; treat this as a relative heuristic)
+    if val >= 2.5e5:
+        return "high"
+    if val >= 8.0e4:
+        return "moderate"
+    return "low"
+
+
+def compute_risk(daily: List[DailyStat]) -> RiskResult:
+    if not daily:
+        return RiskResult(
+            level="unknown",
+            trend="unknown",
+            confidence="low",
+            metric="pcr_target_avg_conc_lin",
+            last7_median=None,
+            prev7_median=None,
+            points_used=0,
+            note="no wastewater data returned",
+        )
+
+    values = [d.value for d in daily]
+    # last 7 non-empty points vs previous 7 non-empty points
+    last7 = values[-7:] if len(values) >= 7 else values
+    prev7 = values[-14:-7] if len(values) >= 14 else []
+
+    last7_med = _median_safe(last7)
+    prev7_med = _median_safe(prev7)
+
+    trend = _trend_from_medians(last7_med, prev7_med)
+    level = _risk_level_from_value(last7_med)
+
+    # confidence based on points
+    pts = len(daily)
+    if pts >= 21:
+        conf = "high"
+    elif pts >= 14:
+        conf = "moderate"
+    else:
+        conf = "low"
+
+    note = None
+    if pts < 14:
+        note = "limited data points for trend; confidence reduced"
+
+    return RiskResult(
+        level=level,
+        trend=trend if conf != "low" else ("unknown" if trend != "unknown" else "unknown"),
+        confidence=conf,
+        metric=daily[-1].metric if daily else "pcr_target_avg_conc_lin",
+        last7_median=last7_med,
+        prev7_median=prev7_med,
+        points_used=pts,
+        note=note,
+    )
 
 
 # ---------------------------
-# CDC dataset access
+# Adaptive window selection
 # ---------------------------
 
-def list_distinct_targets(dataset_id: str, limit: int = 2000) -> List[str]:
-    params = {"$select": "distinct pcr_target", "$limit": limit}
+def choose_adaptive_window(
+    *,
+    fetch_fn: Callable[..., List[DailyStat]],
+    county_fips: str,
+    target: str,
+    prefer_location: str,
+    windows: List[int],
+    min_daily_points_for_trend: int,
+    min_daily_points_for_risk: int,
+) -> Tuple[int, List[DailyStat], RiskResult]:
+    last_note = None
+    for w in windows:
+        daily = fetch_fn(county_fips, days=w, target=target, prefer_location=prefer_location)
+        risk = compute_risk(daily)
+        last_note = risk.note
+        if risk.points_used >= min_daily_points_for_trend:
+            return w, daily, risk
+        # If we at least have enough to assign risk but not trend, keep trying larger window.
+        if risk.points_used >= min_daily_points_for_risk:
+            # keep searching for better trend signal, but retain current
+            best = (w, daily, risk)
+
+    # If we never hit trend threshold, return best we got (or the last attempt)
+    if "best" in locals():
+        return best
+    # fall back to last attempted window
+    if windows:
+        w = windows[-1]
+        daily = fetch_fn(county_fips, days=w, target=target, prefer_location=prefer_location)
+        risk = compute_risk(daily)
+        if not risk.note and last_note:
+            risk.note = last_note
+        return w, daily, risk
+
+    return 0, [], compute_risk([])
+
+
+# ---------------------------
+# Data fetch
+# ---------------------------
+
+def list_distinct_targets(dataset_id: str) -> List[str]:
+    params = {"$select": "distinct pcr_target", "$limit": 5000}
     rows = _get_json(dataset_id, params)
-    out: List[str] = []
+    out = []
     for r in rows:
         t = (r.get("pcr_target") or "").strip()
         if t:
@@ -203,22 +334,22 @@ def fetch_county_series_dataset(
     days: int,
     target: str,
     prefer_location: str = "wwtp",
-    limit: int = 5000,
-) -> List[Point]:
-    since = (date.today() - timedelta(days=days)).isoformat()
-    cf = str(county_fips).zfill(5)
-
-    where = (
-        f"sample_collect_date >= '{since}' "
-        f"AND county_fips = '{cf}' "
-        f"AND pcr_target = '{target}'"
-    )
+) -> List[DailyStat]:
+    """
+    Pull raw rows for county_fips and pcr_target, then produce daily medians.
+    """
+    end = date.today()
+    start = end - timedelta(days=days)
 
     params = {
-        "$where": where,
-        "$limit": limit,
+        "$limit": 50000,
         "$offset": 0,
-        "$order": "sample_collect_date DESC",
+        "$order": "sample_collect_date ASC",
+        "$where": (
+            f"county_fips='{county_fips}' AND "
+            f"lower(pcr_target)='{target.lower()}' AND "
+            f"sample_collect_date >= '{start.isoformat()}'"
+        ),
         "$select": ",".join(
             [
                 "sample_collect_date",
@@ -235,25 +366,37 @@ def fetch_county_series_dataset(
 
     rows = _get_json(dataset_id, params)
 
-    pts: List[Point] = []
+    # Coerce into points
+    points: List[Tuple[date, float, str]] = []
     for r in rows:
         d = _parse_date(r.get("sample_collect_date"))
         if not d:
             continue
-        pts.append(
-            Point(
-                day=d,
-                conc_lin=_parse_float(r.get("pcr_target_avg_conc_lin")),
-                conc=_parse_float(r.get("pcr_target_avg_conc")),
-                units=(r.get("pcr_target_units") or None),
-                location=(r.get("sample_location") or None),
-                record_id=(r.get("record_id") or None),
-            )
-        )
+        v = _parse_float(r.get("pcr_target_avg_conc_lin"))
+        if v is None:
+            continue
+        loc = (r.get("sample_location") or "").strip()
+        points.append((d, v, loc))
 
-    loc = prefer_location.lower().strip()
-    wwtp_pts = [p for p in pts if (p.location or "").lower() == loc]
-    return wwtp_pts if wwtp_pts else pts
+    if not points:
+        return []
+
+    # Prefer a specific location if present (matching is exact case-insensitive)
+    pref = prefer_location.lower().strip()
+    preferred = [(d, v) for (d, v, loc) in points if loc.lower() == pref]
+    use_points = preferred if preferred else [(d, v) for (d, v, _) in points]
+
+    # Daily median
+    by_day: Dict[date, List[float]] = {}
+    for d, v in use_points:
+        by_day.setdefault(d, []).append(v)
+
+    daily: List[DailyStat] = []
+    for d in sorted(by_day.keys()):
+        vals = by_day[d]
+        daily.append(DailyStat(day=d, value=float(median(vals)), metric="pcr_target_avg_conc_lin", n=len(vals)))
+
+    return daily
 
 
 # ---------------------------
@@ -266,12 +409,12 @@ def run_one(
     pathogen_key: str,
     days_requested: int,
     pcr_target_override: Optional[str],
-) -> Tuple[PathogenResult, List[Any]]:
+) -> Tuple[PathogenResult, List[DailyStat]]:
     cfg = PATHOGENS[pathogen_key]
     dataset_id = cfg.dataset_id
     target = pcr_target_override or cfg.default_pcr_target
 
-    def _fetch_fn(county_fips: str, *, days: int, target: str, prefer_location: str):
+    def _fetch_fn(county_fips: str, *, days: int, target: str, prefer_location: str) -> List[DailyStat]:
         return fetch_county_series_dataset(
             dataset_id,
             county_fips,
@@ -318,13 +461,7 @@ def print_human_header(geo) -> None:
     print(f"County: {geo.county_name} | FIPS: {geo.county_fips}\n")
 
 
-def print_human(
-    pr: PathogenResult,
-    daily: List[Any],
-    *,
-    days_requested: int,
-    show: int = 25,
-) -> None:
+def print_human(pr: PathogenResult, daily: List[DailyStat], *, days_requested: int, show: int = 25) -> None:
     print(f"CDC Wastewater (dataset {pr.dataset_id})")
     print(f"Pathogen: {pr.pathogen}")
     print(f"pcr_target: {pr.pcr_target}")
@@ -338,7 +475,10 @@ def print_human(
     print(f"Risk: {pr.risk} | Trend: {pr.trend} | Confidence: {pr.confidence}")
     if pr.note:
         print(f"Note: {pr.note}")
-    print(f"Scores: composite={pr.composite_score:.3f} (risk={pr.risk_score:.2f}, trend={pr.trend_score:+.2f}, conf={pr.confidence_score:.2f})")
+    print(
+        f"Scores: composite={pr.composite_score:.3f} "
+        f"(risk={pr.risk_score:.2f}, trend={pr.trend_score:+.2f}, conf={pr.confidence_score:.2f})"
+    )
     print()
 
     print("Most recent daily medians:")
@@ -393,11 +533,10 @@ def rollup_overall(results: List[PathogenResult]) -> Dict[str, Any]:
 
     per_scores = {r.pathogen: r.composite_score for r in results}
 
-    # Confidence-aware suggestions (key change)
+    # Confidence-aware suggestions
     if overall_level == "unknown":
         suggestion = "No wastewater signal available for your area."
     elif overall_conf == "low":
-        # soften language when data is sparse
         if overall_level in ("high", "moderate"):
             suggestion = (
                 "Limited wastewater sampling in your area. Signals suggest elevated respiratory activity, "
@@ -409,7 +548,6 @@ def rollup_overall(results: List[PathogenResult]) -> Dict[str, Any]:
                 "Maintain normal cleaning habits."
             )
     else:
-        # medium/high confidence
         if overall_level == "high":
             suggestion = "High respiratory activity detected in your area. Consider increasing disinfection of high-touch surfaces."
         elif overall_level == "moderate":
@@ -428,7 +566,7 @@ def rollup_overall(results: List[PathogenResult]) -> Dict[str, Any]:
 
 
 # ---------------------------
-# Persistence
+# Persistence (files)
 # ---------------------------
 
 def persist_snapshot(snapshot: SnapshotResult, base_dir: Path, zip_code: str) -> Dict[str, str]:
@@ -469,7 +607,8 @@ def main() -> int:
     ap.add_argument("--json", action="store_true", help="emit JSON snapshot (printed after human output unless --json-only)")
     ap.add_argument("--json-only", action="store_true", help="emit JSON only (suppresses human output)")
     ap.add_argument("--persist", action="store_true", help="write snapshot JSON to data/snapshots/<zip>/ ...")
-    ap.add_argument("--data-dir", default="data", help="base directory for persistence (default: ./data)")
+    ap.add_argument("--data-dir", default="data", help="base directory for file persistence (default: ./data)")
+    ap.add_argument("--db", action="store_true", help="persist snapshot to Postgres (uses DATABASE_URL)")
     args = ap.parse_args()
 
     if args.json_only:
@@ -487,7 +626,7 @@ def main() -> int:
     geo = zip_to_county(args.zip)
 
     results: List[PathogenResult] = []
-    daily_by_pathogen: Dict[str, List[Any]] = {}
+    daily_by_pathogen: Dict[str, List[DailyStat]] = {}
 
     if not args.json_only:
         print_human_header(geo)
@@ -527,7 +666,9 @@ def main() -> int:
         print(f"- suggestion: {roll['suggestion']}")
         print()
 
-    if args.json:
+    # Build snapshot if needed for JSON and/or DB persistence
+    snap: Optional[SnapshotResult] = None
+    if args.json or args.db or args.persist:
         snap = SnapshotResult(
             zip_code=geo.zip_code,
             place=geo.place,
@@ -541,13 +682,46 @@ def main() -> int:
             rollup=roll,
         )
 
-        persist_info: Optional[Dict[str, str]] = None
-        if args.persist:
-            base_dir = Path(args.data_dir)
-            persist_info = persist_snapshot(snap, base_dir, geo.zip_code)
-            # include file paths in JSON output for cron debugging
-            roll_with_paths = dict(roll)
-            roll_with_paths["persist"] = persist_info
+    # File persistence
+    if snap and args.persist:
+        base_dir = Path(args.data_dir)
+        persist_info = persist_snapshot(snap, base_dir, geo.zip_code)
+        # include file paths in JSON output for cron debugging
+        roll_with_paths = dict(roll)
+        roll_with_paths["persist"] = persist_info
+        snap = SnapshotResult(
+            zip_code=snap.zip_code,
+            place=snap.place,
+            state_name=snap.state_name,
+            state_abbr=snap.state_abbr,
+            county_name=snap.county_name,
+            county_fips=snap.county_fips,
+            generated_at=snap.generated_at,
+            days_requested=snap.days_requested,
+            results=snap.results,
+            rollup=roll_with_paths,
+        )
+
+    # DB persistence
+    if args.db:
+        if not os.getenv("DATABASE_URL"):
+            raise SystemExit("DATABASE_URL is not set. Export DATABASE_URL before using --db.")
+        if connect is None or ensure_schema is None or insert_wastewater_snapshot is None:
+            raise SystemExit("uvceed_alerts.db is missing required functions (connect/ensure_schema/insert_wastewater_snapshot).")
+
+        assert snap is not None  # guaranteed above
+        with connect() as conn:
+            ensure_schema(conn)
+            snapshot_id = insert_wastewater_snapshot(conn, asdict(snap))
+
+        if not args.json_only:
+            print(f"Saved snapshot to DB (wastewater_snapshots.id={snapshot_id})")
+            print()
+
+        # optionally include snapshot_id in JSON output
+        if snap and args.json:
+            roll2 = dict(snap.rollup)
+            roll2["db"] = {"wastewater_snapshots_id": snapshot_id}
             snap = SnapshotResult(
                 zip_code=snap.zip_code,
                 place=snap.place,
@@ -558,9 +732,12 @@ def main() -> int:
                 generated_at=snap.generated_at,
                 days_requested=snap.days_requested,
                 results=snap.results,
-                rollup=roll_with_paths,
+                rollup=roll2,
             )
 
+    # JSON output
+    if args.json:
+        assert snap is not None
         print(json.dumps(asdict(snap), indent=2, default=str))
 
     return 0

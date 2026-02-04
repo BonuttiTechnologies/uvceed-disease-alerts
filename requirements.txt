@@ -7,4 +7,3 @@ python-dotenv==1.2.1
 requests==2.32.3
 six==1.17.0
 urllib3==2.6.3
--e git+https://github.com/BonuttiTechnologies/UVCeed_Support_Scripts.git@0fb4b4078d30b31da9f5ffda5738180d48ff2cb0#egg=uvceed_alerts&subdirectory=uvceed-disease-alerts
