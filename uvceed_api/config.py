@@ -1,21 +1,31 @@
+from __future__ import annotations
+
 import os
+from pathlib import Path
+from dotenv import load_dotenv
 
-def env(name: str, default: str | None = None) -> str | None:
-    v = os.environ.get(name)
-    return v if v is not None and v != "" else default
+def load_env() -> Path:
+    """Load env vars from repo-root .env if present."""
+    env_path = Path(__file__).resolve().parents[1] / ".env"
+    if env_path.exists():
+        load_dotenv(dotenv_path=env_path, override=False)
+    return env_path
 
-UVCEED_API_KEY = env("UVCEED_API_KEY")  # required for auth in production
+ENV_PATH = load_env()
 
-# Read-through cache TTLs (hours)
-TTL_HOURS_WASTEWATER = float(env("UVCEED_TTL_HOURS_WASTEWATER", "12"))
-TTL_HOURS_NSSP_ED_VISITS = float(env("UVCEED_TTL_HOURS_NSSP_ED_VISITS", "12"))
+# Auth
+UVCEED_API_KEY = os.getenv("UVCEED_API_KEY", "").strip()
 
-# NSSP configuration
-NSSP_WEEKS = int(env("UVCEED_NSSP_WEEKS", "16"))
-NSSP_PATHOGEN = env("UVCEED_NSSP_PATHOGEN", "combined") or "combined"
-
-# API behavior
-REFRESH_TIMEOUT_SECONDS = int(env("UVCEED_REFRESH_TIMEOUT_SECONDS", "55"))
-
-# Which signal types this API serves (option 2: multiple signals per ZIP)
+# Signals exposed by /signals/latest
 SIGNAL_TYPES = ["wastewater", "nssp_ed_visits"]
+
+# Refresh behavior
+REFRESH_TIMEOUT_SECONDS = int(os.getenv("UVCEED_REFRESH_TIMEOUT_SECONDS", "55"))
+
+# per-signal cache TTL (staleness threshold)
+TTL_HOURS_WASTEWATER = float(os.getenv("UVCEED_TTL_HOURS_WASTEWATER", "12"))
+TTL_HOURS_NSSP_ED_VISITS = float(os.getenv("UVCEED_TTL_HOURS_NSSP_ED_VISITS", "12"))
+
+# NSSP config
+NSSP_PATHOGEN = (os.getenv("UVCEED_NSSP_PATHOGEN", "combined") or "combined").strip()
+NSSP_WEEKS = int(os.getenv("UVCEED_NSSP_WEEKS", "16"))

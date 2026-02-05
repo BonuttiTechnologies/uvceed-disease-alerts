@@ -1,9 +1,12 @@
 import os
+import datetime as dt
 from contextlib import contextmanager
-from typing import Any, Dict, Iterable, Optional, Tuple
+from typing import Any, Dict, Iterable, Optional
 
 import psycopg2
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, Json
+
+UTC = dt.timezone.utc
 
 def get_database_url() -> str:
     url = os.environ.get("DATABASE_URL")
@@ -25,7 +28,6 @@ def db_conn():
 
 def ensure_phase3_schema(conn) -> None:
     with conn.cursor() as cur:
-        # canonical snapshots table is created by Phase 2 scripts; keep this minimal and safe
         cur.execute("""
         CREATE TABLE IF NOT EXISTS signal_snapshots (
           id bigserial PRIMARY KEY,
@@ -105,11 +107,60 @@ def latest_snapshots(conn, zip_code: str, signal_types: Iterable[str]) -> Dict[s
             out[st] = cur.fetchone()
     return out
 
+def insert_signal_snapshot(
+    conn,
+    *,
+    zip_code: str,
+    signal_type: str,
+    generated_at: dt.datetime,
+    payload: Dict[str, Any],
+    risk_level: Optional[str] = None,
+    trend: Optional[str] = None,
+    confidence: Optional[str] = None,
+    composite_score: Optional[float] = None,
+    pathogen: Optional[str] = None,
+    state: Optional[str] = None,
+    county_fips: Optional[str] = None,
+    geo_level: Optional[str] = None,
+    geo_id: Optional[str] = None,
+) -> int:
+    if generated_at.tzinfo is None:
+        generated_at = generated_at.replace(tzinfo=UTC)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO signal_snapshots(
+                zip_code, signal_type, generated_at, payload,
+                pathogen, geo_level, geo_id, state, county_fips,
+                risk_level, trend, confidence, composite_score
+            )
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            RETURNING id;
+            """,
+            (
+                zip_code,
+                signal_type,
+                generated_at,
+                Json(payload),
+                pathogen,
+                geo_level,
+                geo_id,
+                state,
+                county_fips,
+                risk_level,
+                trend,
+                confidence,
+                composite_score,
+            ),
+        )
+        row = cur.fetchone()
+        return int(row["id"])
+
 def advisory_key(zip_code: str, signal_type: str) -> str:
     return f"uvceed_refresh:{zip_code}:{signal_type}"
 
 def try_advisory_lock(conn, key: str) -> bool:
-    # Use Postgres hashtext to map string -> int4, then cast to int8 for advisory locks
     with conn.cursor() as cur:
         cur.execute("SELECT pg_try_advisory_lock(hashtext(%s)::bigint) AS locked;", (key,))
         row = cur.fetchone()
