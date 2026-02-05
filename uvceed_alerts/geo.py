@@ -115,6 +115,23 @@ def zip_to_county(zip_code: str, *, timeout: int = DEFAULT_TIMEOUT) -> GeoResult
     )
 
 
+
+def lookup_zip(zip_code: str, *, timeout: int = DEFAULT_TIMEOUT) -> dict:
+    """Backward-compatible helper used by older CDC ingestion scripts.
+
+    Returns a dict with the common fields expected by ingestion scripts:
+    place, state_name, state_abbr, county_name, county_fips.
+    """
+    res = zip_to_county(zip_code, timeout=timeout)
+    return {
+        "zip_code": res.zip_code,
+        "place": res.place,
+        "state_name": res.state_name,
+        "state_abbr": res.state_abbr,
+        "county_name": res.county_name,
+        "county_fips": res.county_fips,
+    }
+
 def _format(res: GeoResult) -> str:
     return (
         f"ZIP: {res.zip_code}\n"
