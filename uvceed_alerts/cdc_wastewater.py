@@ -302,7 +302,7 @@ def main():
         "state_abbr": geo.state_abbr,
         "county_name": geo.county_name,
         "county_fips": geo.county_fips,
-        "generated_at": dt.datetime.utcnow().isoformat(timespec="seconds"),
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "days_requested": DEFAULT_WINDOW_DAYS,
         "results": results,
         "rollup": {

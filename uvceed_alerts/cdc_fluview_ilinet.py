@@ -410,7 +410,7 @@ def main() -> int:
         lookback_weeks=max(12, args.lookback_weeks),
     )
 
-    generated_at = dt.datetime.utcnow().isoformat()
+    generated_at = dt.datetime.now(dt.timezone.utc).isoformat()
 
     payload = {
         **header,

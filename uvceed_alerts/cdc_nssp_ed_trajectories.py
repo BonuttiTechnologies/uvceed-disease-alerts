@@ -33,8 +33,7 @@ import sys
 import time
 from dataclasses import asdict
 from datetime import date
-import datetime as dt
-from datetime import datetime, timedelta
+import datetime as dt, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -646,7 +645,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
 
     geo = zip_to_county(args.zip_code)
-    generated_at = dt.datetime.utcnow().isoformat()
+    generated_at = dt.datetime.now(dt.timezone.utc).isoformat()
 
     payload = {
         "zip_code": args.zip_code,

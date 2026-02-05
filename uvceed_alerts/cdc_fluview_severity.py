@@ -341,7 +341,7 @@ def main() -> int:
         print(f"Note: {hosp.note}")
     print("")
 
-    generated_at = dt.datetime.utcnow().isoformat()
+    generated_at = dt.datetime.now(dt.timezone.utc).isoformat()
 
     payload = {
         "zip_code": geo.zip_code,
