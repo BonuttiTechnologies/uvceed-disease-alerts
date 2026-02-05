@@ -33,7 +33,8 @@ import sys
 import time
 from dataclasses import asdict
 from datetime import date
-import datetime as dt, datetime, timedelta
+import datetime as dt
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests

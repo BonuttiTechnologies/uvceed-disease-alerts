@@ -18,7 +18,7 @@ from typing import Dict, List, Optional
 import psycopg2
 import requests
 
-from uvceed_alerts.geo import lookup_zip
+from uvceed_alerts.geo import zip_to_county
 from uvceed_alerts.config import (
     CDC_APP_TOKEN,
 )
@@ -241,21 +241,21 @@ def main():
     parser.add_argument("--all", action="store_true")
     args = parser.parse_args()
 
-    geo = lookup_zip(args.zip)
+    geo = zip_to_county(args.zip)
 
     results = []
     scores = {}
 
     for pathogen, pcr in PATHOGENS.items():
         rows = fetch_wastewater(
-            geo["county_fips"],
+            geo.county_fips,
             pcr,
             DEFAULT_WINDOW_DAYS,
         )
 
         if not rows:
             rows = fetch_wastewater(
-                geo["county_fips"],
+                geo.county_fips,
                 pcr,
                 FALLBACK_WINDOW_DAYS,
             )
@@ -297,11 +297,11 @@ def main():
 
     snapshot = {
         "zip_code": args.zip,
-        "place": geo["place"],
-        "state_name": geo["state_name"],
-        "state_abbr": geo["state_abbr"],
-        "county_name": geo["county_name"],
-        "county_fips": geo["county_fips"],
+        "place": geo.place,
+        "state_name": geo.state_name,
+        "state_abbr": geo.state_abbr,
+        "county_name": geo.county_name,
+        "county_fips": geo.county_fips,
         "generated_at": dt.datetime.utcnow().isoformat(timespec="seconds"),
         "days_requested": DEFAULT_WINDOW_DAYS,
         "results": results,
