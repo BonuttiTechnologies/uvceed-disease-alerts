@@ -153,20 +153,25 @@ def analyze_series(rows: List[Dict]) -> Dict:
 SIGNAL_DDL = r"""
 CREATE TABLE IF NOT EXISTS signal_snapshots (
   id bigserial PRIMARY KEY,
+  zip_code text NOT NULL,
   signal_type text NOT NULL,
+  generated_at timestamptz NOT NULL,
+  payload jsonb NOT NULL,
+
+  -- optional standardized fields (nullable)
   pathogen text,
   geo_level text,
   geo_id text,
-  zip_code text,
   state text,
   county_fips text,
-  generated_at timestamptz NOT NULL,
   risk_level text,
   trend text,
   confidence text,
-  composite_score double precision,
-  payload jsonb NOT NULL
+  composite_score double precision
 );
+
+CREATE INDEX IF NOT EXISTS idx_signal_snapshots_zip_type_time
+  ON signal_snapshots(zip_code, signal_type, generated_at DESC);
 """
 
 def _db_connect():
@@ -179,60 +184,46 @@ def _db_connect():
         raise RuntimeError("psycopg2 is not installed in this environment.") from e
     return psycopg2.connect(url)
 
+
 def save_to_db(snapshot: Dict) -> int:
+    """
+    Save snapshot into canonical signal_snapshots table.
+    Returns inserted row id.
+    """
     conn = _db_connect()
     cur = conn.cursor()
-    # ensure table exists
     cur.execute(SIGNAL_DDL)
 
     cur.execute(
         """
-        INSERT INTO signal_snapshots (
-          signal_type,
-          pathogen,
-          geo_level,
-          geo_id,
-          zip_code,
-          state,
-          county_fips,
-          generated_at,
-          risk_level,
-          trend,
-          confidence,
-          composite_score,
-          payload
-        )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        INSERT INTO signal_snapshots
+          (zip_code, signal_type, generated_at, payload,
+           pathogen, geo_level, geo_id, state, county_fips,
+           risk_level, trend, confidence, composite_score)
+        VALUES
+          (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         RETURNING id
         """,
         (
+            snapshot.get("zip_code"),
             "wastewater",
-            snapshot["results"][0]["pathogen"],
-            "zip",
-            snapshot["zip_code"],
-            snapshot["zip_code"],
-            snapshot["state_abbr"],
-            snapshot["county_fips"],
-            snapshot["generated_at"],
-            snapshot["rollup"]["overall_level"],
-            snapshot["rollup"]["overall_trend"],
-            snapshot["rollup"]["overall_confidence"],
-            snapshot["rollup"]["overall_score"],
+            snapshot.get("generated_at"),
             json.dumps(snapshot),
+            (snapshot.get("results") or [{}])[0].get("pathogen"),
+            "zip",
+            snapshot.get("zip_code"),
+            snapshot.get("state_abbr"),
+            snapshot.get("county_fips"),
+            snapshot.get("rollup", {}).get("overall_level"),
+            snapshot.get("rollup", {}).get("overall_trend"),
+            snapshot.get("rollup", {}).get("overall_confidence"),
+            snapshot.get("rollup", {}).get("overall_score"),
         ),
     )
-
-    row_id = int(cur.fetchone()[0])
+    new_id = cur.fetchone()[0]
     conn.commit()
-    cur.close()
     conn.close()
-    return row_id
-
-
-# -----------------------------
-# CLI
-# -----------------------------
-
+    return int(new_id)
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("zip", help="ZIP code")
