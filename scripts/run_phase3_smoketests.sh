@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Phase 3 smoke tests (v2)
+# Phase 3 smoke tests (v3, robust HTTP diagnostics)
 # - Ensures schema
 # - Starts API locally
 # - Calls /health
 # - Calls /signals/latest for a KNOWN zip (default 60614)
 # - Prompts user for a NEW zip and calls /signals/latest for it
-#   - If the NEW zip had no cached data, expects refreshed=true (read-through cache)
+#
+# Key improvement vs v2:
+# - Does NOT use curl -f (which can hide error bodies)
+# - Captures HTTP status + body and prints helpful diagnostics
 #
 # Requires env:
 #   DATABASE_URL
@@ -41,6 +44,38 @@ prompt_zip () {
   echo "$z"
 }
 
+curl_json () {
+  # usage: curl_json "/path?query"
+  local path="$1"
+  local url="${BASE_URL}${path}"
+  local tmp_body
+  tmp_body="$(mktemp)"
+  local http_code
+  http_code="$(curl -sS "${AUTH_HEADER[@]}" -o "$tmp_body" -w "%{http_code}" "$url" || true)"
+
+  echo
+  echo "GET ${path}  -> HTTP ${http_code}"
+  echo "---- body ----"
+  cat "$tmp_body"
+  echo
+  echo "--------------"
+
+  if [[ "$http_code" != "200" ]]; then
+    echo "ERROR: expected HTTP 200, got ${http_code} for ${path}" >&2
+    rm -f "$tmp_body"
+    exit 1
+  fi
+
+  # Validate JSON (and pretty print)
+  python3 - <<PY <"$tmp_body"
+import json,sys
+j=json.load(sys.stdin)
+print(json.dumps(j, indent=2))
+PY
+
+  rm -f "$tmp_body"
+}
+
 echo "Ensuring schema..."
 python3 -m uvceed_api.db_migrate
 
@@ -52,20 +87,28 @@ trap cleanup EXIT
 
 # wait for server
 for i in {1..60}; do
-  if curl -fsS "${BASE_URL}/health" "${AUTH_HEADER[@]}" >/dev/null 2>&1; then
+  if curl -sS "${AUTH_HEADER[@]}" "${BASE_URL}/health" >/dev/null 2>&1; then
     break
   fi
   sleep 0.25
 done
 
-echo
-echo "GET /health"
-curl -fsS "${BASE_URL}/health" "${AUTH_HEADER[@]}" | python3 -c 'import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))'
+curl_json "/health"
 
 echo
-echo "GET /signals/latest?zip=${KNOWN_ZIP}  (known ZIP smoke test)"
-resp_known="$(curl -fsS "${BASE_URL}/signals/latest?zip=${KNOWN_ZIP}" "${AUTH_HEADER[@]}")"
-echo "$resp_known" | python3 - <<'PY'
+echo "Known ZIP smoke test (shape check)"
+tmp="$(mktemp)"
+code="$(curl -sS "${AUTH_HEADER[@]}" -o "$tmp" -w "%{http_code}" "${BASE_URL}/signals/latest?zip=${KNOWN_ZIP}" || true)"
+echo
+echo "GET /signals/latest?zip=${KNOWN_ZIP}  -> HTTP ${code}"
+echo "---- body ----"
+cat "$tmp"; echo; echo "--------------"
+if [[ "$code" != "200" ]]; then
+  echo "ERROR: /signals/latest failed for known zip ${KNOWN_ZIP}" >&2
+  rm -f "$tmp"
+  exit 1
+fi
+python3 - <<'PY' <"$tmp"
 import json,sys
 j=json.load(sys.stdin)
 assert "signals" in j, "missing signals"
@@ -73,25 +116,35 @@ for k in ("wastewater","nssp_ed_visits"):
     assert k in j["signals"], f"missing {k}"
 print(json.dumps(j, indent=2))
 PY
+rm -f "$tmp"
 
 echo
 NEW_ZIP="$(prompt_zip "Enter a NEW ZIP to test read-through cache (ideally not already in DB)" "62401")"
 
 echo
-echo "GET /signals/latest?zip=${NEW_ZIP}  (new ZIP read-through cache test)"
-resp_new="$(curl -fsS "${BASE_URL}/signals/latest?zip=${NEW_ZIP}" "${AUTH_HEADER[@]}")"
-echo "$resp_new" | python3 - <<'PY'
+echo "New ZIP read-through cache test (should refresh if missing/stale)"
+tmp="$(mktemp)"
+code="$(curl -sS "${AUTH_HEADER[@]}" -o "$tmp" -w "%{http_code}" "${BASE_URL}/signals/latest?zip=${NEW_ZIP}" || true)"
+echo
+echo "GET /signals/latest?zip=${NEW_ZIP}  -> HTTP ${code}"
+echo "---- body ----"
+cat "$tmp"; echo; echo "--------------"
+if [[ "$code" != "200" ]]; then
+  echo "ERROR: /signals/latest failed for new zip ${NEW_ZIP}" >&2
+  rm -f "$tmp"
+  exit 1
+fi
+python3 - <<'PY' <"$tmp"
 import json,sys
 j=json.load(sys.stdin)
 assert "signals" in j, "missing signals"
 for k in ("wastewater","nssp_ed_visits"):
     assert k in j["signals"], f"missing {k}"
-# We *expect* refreshed=True when the ZIP is genuinely new/missing or stale.
-# If the ZIP already exists and is fresh, refreshed may be False. We'll warn rather than fail hard.
 if not j.get("refreshed", False):
     print("WARN: refreshed=false. This likely means the ZIP already had fresh cached data in signal_snapshots.")
 print(json.dumps(j, indent=2))
 PY
+rm -f "$tmp"
 
 echo
-echo "OK: Phase 3 smoke tests (v2) passed."
+echo "OK: Phase 3 smoke tests (v3) passed."
