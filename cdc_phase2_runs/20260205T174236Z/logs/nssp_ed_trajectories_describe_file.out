@@ -1,0 +1,16 @@
+NSSP ED Visits (Trajectories / numeric) — CDC Socrata dataset rdmq-nq56
+State input: IL -> geography='Illinois'
+
+Columns (18): buildnumber, county, ed_trends_covid, ed_trends_influenza, ed_trends_rsv, fips, geography, hsa, hsa_counties, hsa_nci_id, percent_visits_covid, percent_visits_influenza, percent_visits_rsv, percent_visits_smoothed_1, percent_visits_smoothed_covid, percent_visits_smoothed_rsv, trend_source, week_end
+
+Example rows (up to 5):
+- week_end=2026-01-24T00:00:00.000 county=Alexander hsa=Union, IL - Alexander, IL covid=0.66 flu=1.32 rsv=0.0
+- week_end=2026-01-24T00:00:00.000 county=All hsa=All covid=1.33 flu=3.28 rsv=0.68
+- week_end=2026-01-24T00:00:00.000 county=Cass hsa=Sangamon (Springfield), IL - Christian, IL covid=1.26 flu=4.25 rsv=0.91
+- week_end=2026-01-24T00:00:00.000 county=Champaign hsa=Champaign (Champaign), IL - Coles, IL covid=0.62 flu=2.46 rsv=0.25
+- week_end=2026-01-24T00:00:00.000 county=Christian hsa=Sangamon (Springfield), IL - Christian, IL covid=1.26 flu=4.25 rsv=0.91
+
+Strict state-level row check (geography + county='All'):
+- strict rows returned: 30
+- most recent strict row:
+  week_end=2026-01-24T00:00:00.000 covid=1.33 flu=3.28 rsv=0.68

@@ -1,0 +1,77 @@
+test_id	label	mode	target	args	exit_code	duration_s	stdout_bytes	stderr_bytes	status
+wastewater_json_no_db_file	wastewater json (no db)	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_wastewater.py	60614 --json	0	2	1003	0
+ok								
+wastewater_json_db_file	wastewater json (db)	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_wastewater.py	60614 --db --json	0	2	1098	0
+ok								
+wastewater_json_no_db_module	wastewater json (no db)	module	uvceed_alerts.cdc_wastewater	60614 --json	0	1	1003	0
+ok								
+wastewater_json_db_module	wastewater json (db)	module	uvceed_alerts.cdc_wastewater	60614 --db --json	0	2	1098	0
+ok								
+nssp_ed_visits_combined_json_no_db_file	nssp_ed_visits combined json (no db)	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_nssp_ed_visits.py	60614 --pathogen combined --weeks 16 --json-only	0	1	757	0
+ok								
+nssp_ed_visits_combined_json_db_file	nssp_ed_visits combined json (db)	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_nssp_ed_visits.py	60614 --pathogen combined --weeks 16 --db --json-only	0	2	780	0
+ok								
+nssp_ed_visits_combined_json_no_db_module	nssp_ed_visits combined json (no db)	module	uvceed_alerts.cdc_nssp_ed_visits	60614 --pathogen combined --weeks 16 --json-only	0	1	757	0
+ok								
+nssp_ed_visits_combined_json_db_module	nssp_ed_visits combined json (db)	module	uvceed_alerts.cdc_nssp_ed_visits	60614 --pathogen combined --weeks 16 --db --json-only	0	2	780	0
+ok								
+nssp_ed_visits_covid_json_no_db_file	nssp_ed_visits covid json (no db)	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_nssp_ed_visits.py	60614 --pathogen covid --weeks 16 --json-only	0	1	755	0
+ok								
+nssp_ed_visits_covid_json_db_file	nssp_ed_visits covid json (db)	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_nssp_ed_visits.py	60614 --pathogen covid --weeks 16 --db --json-only	0	1	778	0
+ok								
+nssp_ed_visits_covid_json_no_db_module	nssp_ed_visits covid json (no db)	module	uvceed_alerts.cdc_nssp_ed_visits	60614 --pathogen covid --weeks 16 --json-only	0	1	755	0
+ok								
+nssp_ed_visits_covid_json_db_module	nssp_ed_visits covid json (db)	module	uvceed_alerts.cdc_nssp_ed_visits	60614 --pathogen covid --weeks 16 --db --json-only	0	1	778	0
+ok								
+nssp_ed_visits_flu_json_no_db_file	nssp_ed_visits flu json (no db)	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_nssp_ed_visits.py	60614 --pathogen flu --weeks 16 --json-only	0	1	757	0
+ok								
+nssp_ed_visits_flu_json_db_file	nssp_ed_visits flu json (db)	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_nssp_ed_visits.py	60614 --pathogen flu --weeks 16 --db --json-only	0	1	780	0
+ok								
+nssp_ed_visits_flu_json_no_db_module	nssp_ed_visits flu json (no db)	module	uvceed_alerts.cdc_nssp_ed_visits	60614 --pathogen flu --weeks 16 --json-only	0	1	757	0
+ok								
+nssp_ed_visits_flu_json_db_module	nssp_ed_visits flu json (db)	module	uvceed_alerts.cdc_nssp_ed_visits	60614 --pathogen flu --weeks 16 --db --json-only	0	1	780	0
+ok								
+nssp_ed_visits_rsv_json_no_db_file	nssp_ed_visits rsv json (no db)	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_nssp_ed_visits.py	60614 --pathogen rsv --weeks 16 --json-only	0	2	757	0
+ok								
+nssp_ed_visits_rsv_json_db_file	nssp_ed_visits rsv json (db)	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_nssp_ed_visits.py	60614 --pathogen rsv --weeks 16 --db --json-only	0	1	780	0
+ok								
+nssp_ed_visits_rsv_json_no_db_module	nssp_ed_visits rsv json (no db)	module	uvceed_alerts.cdc_nssp_ed_visits	60614 --pathogen rsv --weeks 16 --json-only	0	1	757	0
+ok								
+nssp_ed_visits_rsv_json_db_module	nssp_ed_visits rsv json (db)	module	uvceed_alerts.cdc_nssp_ed_visits	60614 --pathogen rsv --weeks 16 --db --json-only	0	1	780	0
+ok								
+nssp_ed_trajectories_describe_file	nssp_ed_trajectories describe	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_nssp_ed_trajectories.py	--describe --state IL	0	1	1196	0
+ok								
+nssp_ed_trajectories_describe_module	nssp_ed_trajectories describe	module	uvceed_alerts.cdc_nssp_ed_trajectories	--describe --state IL	0	2	1196	0
+ok								
+nssp_ed_trajectories_combined_json_no_db_file	nssp_ed_trajectories combined json (no db)	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_nssp_ed_trajectories.py	60614 --pathogen combined --weeks 16 --json	0	1	2704	0
+ok								
+nssp_ed_trajectories_combined_json_db_file	nssp_ed_trajectories combined json (db)	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_nssp_ed_trajectories.py	60614 --pathogen combined --weeks 16 --db --json	0	2	2786	0
+ok								
+nssp_ed_trajectories_combined_json_no_db_module	nssp_ed_trajectories combined json (no db)	module	uvceed_alerts.cdc_nssp_ed_trajectories	60614 --pathogen combined --weeks 16 --json	0	1	2704	0
+ok								
+nssp_ed_trajectories_combined_json_db_module	nssp_ed_trajectories combined json (db)	module	uvceed_alerts.cdc_nssp_ed_trajectories	60614 --pathogen combined --weeks 16 --db --json	0	1	2786	0
+ok								
+nssp_ed_trajectories_covid_json_no_db_file	nssp_ed_trajectories covid json (no db)	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_nssp_ed_trajectories.py	60614 --pathogen covid --weeks 16 --json	0	1	2541	0
+ok								
+nssp_ed_trajectories_covid_json_db_file	nssp_ed_trajectories covid json (db)	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_nssp_ed_trajectories.py	60614 --pathogen covid --weeks 16 --db --json	0	1	2623	0
+ok								
+nssp_ed_trajectories_covid_json_no_db_module	nssp_ed_trajectories covid json (no db)	module	uvceed_alerts.cdc_nssp_ed_trajectories	60614 --pathogen covid --weeks 16 --json	0	2	2541	0
+ok								
+nssp_ed_trajectories_covid_json_db_module	nssp_ed_trajectories covid json (db)	module	uvceed_alerts.cdc_nssp_ed_trajectories	60614 --pathogen covid --weeks 16 --db --json	0	1	2623	0
+ok								
+nssp_ed_trajectories_flu_json_no_db_file	nssp_ed_trajectories flu json (no db)	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_nssp_ed_trajectories.py	60614 --pathogen flu --weeks 16 --json	0	2	2526	0
+ok								
+nssp_ed_trajectories_flu_json_db_file	nssp_ed_trajectories flu json (db)	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_nssp_ed_trajectories.py	60614 --pathogen flu --weeks 16 --db --json	0	1	2608	0
+ok								
+nssp_ed_trajectories_flu_json_no_db_module	nssp_ed_trajectories flu json (no db)	module	uvceed_alerts.cdc_nssp_ed_trajectories	60614 --pathogen flu --weeks 16 --json	0	2	2526	0
+ok								
+nssp_ed_trajectories_flu_json_db_module	nssp_ed_trajectories flu json (db)	module	uvceed_alerts.cdc_nssp_ed_trajectories	60614 --pathogen flu --weeks 16 --db --json	0	1	2608	0
+ok								
+nssp_ed_trajectories_rsv_json_no_db_file	nssp_ed_trajectories rsv json (no db)	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_nssp_ed_trajectories.py	60614 --pathogen rsv --weeks 16 --json	0	2	2519	0
+ok								
+nssp_ed_trajectories_rsv_json_db_file	nssp_ed_trajectories rsv json (db)	file	/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_nssp_ed_trajectories.py	60614 --pathogen rsv --weeks 16 --db --json	0	3	2601	0
+ok								
+nssp_ed_trajectories_rsv_json_no_db_module	nssp_ed_trajectories rsv json (no db)	module	uvceed_alerts.cdc_nssp_ed_trajectories	60614 --pathogen rsv --weeks 16 --json	0	1	2519	0
+ok								
+nssp_ed_trajectories_rsv_json_db_module	nssp_ed_trajectories rsv json (db)	module	uvceed_alerts.cdc_nssp_ed_trajectories	60614 --pathogen rsv --weeks 16 --db --json	0	1	2601	0
+ok								

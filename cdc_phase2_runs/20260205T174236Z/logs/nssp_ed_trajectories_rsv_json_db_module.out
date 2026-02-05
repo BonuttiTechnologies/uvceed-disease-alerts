@@ -1,0 +1,127 @@
+ZIP: 60614 -> Chicago, Illinois (IL)
+County: Cook County | FIPS: 17031
+
+CDC NSSP ED Visit Trajectories (weekly percent ED visits) — numeric signal
+Dataset: rdmq-nq56
+Region: IL (geography='Illinois')
+Pathogen: rsv
+Metric used: percent_visits
+Lookback used: 16 weeks
+Recent points shown: 12
+Last-3 median: 0.63
+Prev-3 median: 0.58
+Risk: low | Trend: flat | Confidence: high
+
+
+Saved snapshot to DB (nssp_ed_trajectories_snapshots.id=8)
+
+Most recent weeks:
+- 2026-01-24 | 0.68
+- 2026-01-17 | 0.63
+- 2026-01-10 | 0.55
+- 2026-01-03 | 0.66
+- 2025-12-27 | 0.58
+- 2025-12-20 | 0.46
+- 2025-12-13 | 0.27
+- 2025-12-06 | 0.20
+- 2025-11-29 | 0.17
+- 2025-11-22 | 0.13
+- 2025-11-15 | 0.06
+- 2025-11-08 | 0.06
+
+{
+  "zip_code": "60614",
+  "place": "Chicago",
+  "state_name": "Illinois",
+  "state_abbr": "IL",
+  "county_name": "Cook County",
+  "county_fips": "17031",
+  "generated_at": "2026-02-05T17:43:29.837906+00:00",
+  "generated_date": "2026-02-05",
+  "source": "cdc_socrata_nssp_ed_trajectories_numeric",
+  "dataset_id": "rdmq-nq56",
+  "weeks_requested": 16,
+  "pathogen": "rsv",
+  "results": {
+    "region": "IL (geography='Illinois')",
+    "pathogen": "rsv",
+    "metric": "percent_visits",
+    "lookback_weeks": 16,
+    "recent_points": 16,
+    "last3_median": 0.63,
+    "prev3_median": 0.58,
+    "risk": "low",
+    "trend": "flat",
+    "confidence": "high",
+    "note": null,
+    "recent": [
+      {
+        "week_end": "2026-01-24",
+        "value": 0.68
+      },
+      {
+        "week_end": "2026-01-17",
+        "value": 0.63
+      },
+      {
+        "week_end": "2026-01-10",
+        "value": 0.55
+      },
+      {
+        "week_end": "2026-01-03",
+        "value": 0.66
+      },
+      {
+        "week_end": "2025-12-27",
+        "value": 0.58
+      },
+      {
+        "week_end": "2025-12-20",
+        "value": 0.46
+      },
+      {
+        "week_end": "2025-12-13",
+        "value": 0.27
+      },
+      {
+        "week_end": "2025-12-06",
+        "value": 0.2
+      },
+      {
+        "week_end": "2025-11-29",
+        "value": 0.17
+      },
+      {
+        "week_end": "2025-11-22",
+        "value": 0.13
+      },
+      {
+        "week_end": "2025-11-15",
+        "value": 0.06
+      },
+      {
+        "week_end": "2025-11-08",
+        "value": 0.06
+      },
+      {
+        "week_end": "2025-11-01",
+        "value": 0.05
+      },
+      {
+        "week_end": "2025-10-25",
+        "value": 0.04
+      },
+      {
+        "week_end": "2025-10-18",
+        "value": 0.03
+      },
+      {
+        "week_end": "2025-10-11",
+        "value": 0.02
+      }
+    ]
+  },
+  "db": {
+    "snapshot_id": 8
+  }
+}

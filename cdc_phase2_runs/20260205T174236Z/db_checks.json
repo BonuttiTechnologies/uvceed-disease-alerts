@@ -1,0 +1,35 @@
+{
+  "zip_code": "60614",
+  "checks": {
+    "index": {
+      "indexname": "idx_signal_snapshots_zip_type_time",
+      "indexdef": "CREATE INDEX idx_signal_snapshots_zip_type_time ON public.signal_snapshots USING btree (zip_code, signal_type, generated_at DESC)"
+    },
+    "counts_by_type": [
+      {
+        "signal_type": "nssp_ed_visits",
+        "n": 8
+      },
+      {
+        "signal_type": "wastewater",
+        "n": 8
+      }
+    ],
+    "latest_by_type": [
+      {
+        "signal_type": "nssp_ed_visits",
+        "generated_at": "2026-02-05 17:43:02+00:00",
+        "risk_level": "unknown",
+        "trend": "unknown",
+        "confidence": "low"
+      },
+      {
+        "signal_type": "wastewater",
+        "generated_at": "2026-02-05 17:42:43+00:00",
+        "risk_level": "high",
+        "trend": "flat",
+        "confidence": "high"
+      }
+    ]
+  }
+}

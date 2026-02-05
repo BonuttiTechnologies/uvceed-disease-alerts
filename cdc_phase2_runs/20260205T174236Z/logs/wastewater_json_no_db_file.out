@@ -1,0 +1,40 @@
+{
+  "zip_code": "60614",
+  "place": "Chicago",
+  "state_name": "Illinois",
+  "state_abbr": "IL",
+  "county_name": "Cook County",
+  "county_fips": "17031",
+  "generated_at": "2026-02-05T17:42:38+00:00",
+  "days_requested": 60,
+  "results": [
+    {
+      "pathogen": "covid",
+      "dataset_id": "j9g8-acpt",
+      "pcr_target": "sars-cov-2",
+      "window_days": 60,
+      "daily_points": 198,
+      "metric": "pcr_target_avg_conc_lin",
+      "last7_median": 170782.54,
+      "prev7_median": 177164.84,
+      "risk": "moderate",
+      "trend": "flat",
+      "confidence": "high",
+      "note": null,
+      "risk_score": 0.6,
+      "trend_score": 0.0,
+      "confidence_score": 1.0,
+      "composite_score": 0.8
+    }
+  ],
+  "rollup": {
+    "overall_level": "high",
+    "overall_trend": "flat",
+    "overall_confidence": "high",
+    "overall_score": 0.8,
+    "suggestion": "High respiratory activity detected. Increase disinfection frequency.",
+    "per_pathogen_scores": {
+      "covid": 0.8
+    }
+  }
+}
