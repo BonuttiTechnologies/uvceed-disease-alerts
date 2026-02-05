@@ -1,0 +1,26 @@
+test_id	label	script	args	exit_code	duration_s	stdout_bytes	stderr_bytes	status
+nssp_ed_visits_human_combined	nssp_ed_visits human combined	cdc_nssp_ed_visits.py	60614 --pathogen combined --weeks 16	0	1	448	0	ok
+nssp_ed_visits_json_combined	nssp_ed_visits json combined	cdc_nssp_ed_visits.py	60614 --pathogen combined --weeks 16 --json	0	1	1206	0	ok
+nssp_ed_visits_json-only	nssp_ed_visits json-only	cdc_nssp_ed_visits.py	60614 --pathogen combined --weeks 16 --json-only	0	1	757	0	ok
+nssp_ed_visits_db_json-only	nssp_ed_visits db json-only	cdc_nssp_ed_visits.py	60614 --pathogen combined --weeks 16 --db --json-only	0	1	779	0	ok
+nssp_ed_visits_json_covid	nssp_ed_visits json covid	cdc_nssp_ed_visits.py	60614 --pathogen covid --weeks 16 --json-only	0	2	755	0	ok
+nssp_ed_visits_json_flu	nssp_ed_visits json flu	cdc_nssp_ed_visits.py	60614 --pathogen flu --weeks 16 --json-only	0	1	757	0	ok
+nssp_ed_visits_json_rsv	nssp_ed_visits json rsv	cdc_nssp_ed_visits.py	60614 --pathogen rsv --weeks 16 --json-only	0	1	757	0	ok
+nssp_ed_trajectories_describe	nssp_ed_trajectories describe	cdc_nssp_ed_trajectories.py	--describe --state IL	1	0	0	239	fail
+nssp_ed_trajectories_human_combined	nssp_ed_trajectories human combined	cdc_nssp_ed_trajectories.py	60614 --pathogen combined --weeks 16	1	0	0	239	fail
+nssp_ed_trajectories_json_combined	nssp_ed_trajectories json combined	cdc_nssp_ed_trajectories.py	60614 --pathogen combined --weeks 16 --json	1	0	0	239	fail
+nssp_ed_trajectories_human_covid	nssp_ed_trajectories human covid	cdc_nssp_ed_trajectories.py	60614 --pathogen covid --weeks 16	1	0	0	239	fail
+nssp_ed_trajectories_json_covid	nssp_ed_trajectories json covid	cdc_nssp_ed_trajectories.py	60614 --pathogen covid --weeks 16 --json	1	0	0	239	fail
+nssp_ed_trajectories_human_flu	nssp_ed_trajectories human flu	cdc_nssp_ed_trajectories.py	60614 --pathogen flu --weeks 16	1	0	0	239	fail
+nssp_ed_trajectories_json_flu	nssp_ed_trajectories json flu	cdc_nssp_ed_trajectories.py	60614 --pathogen flu --weeks 16 --json	1	0	0	239	fail
+nssp_ed_trajectories_human_rsv	nssp_ed_trajectories human rsv	cdc_nssp_ed_trajectories.py	60614 --pathogen rsv --weeks 16	1	0	0	239	fail
+nssp_ed_trajectories_json_rsv	nssp_ed_trajectories json rsv	cdc_nssp_ed_trajectories.py	60614 --pathogen rsv --weeks 16 --json	1	0	0	239	fail
+fluview_ilinet_human	fluview_ilinet human	cdc_fluview_ilinet.py	60614 --weeks 12 --lookback-weeks 104	0	1	590	0	ok
+fluview_ilinet_json	fluview_ilinet json	cdc_fluview_ilinet.py	60614 --weeks 12 --lookback-weeks 104 --json	0	1	2006	0	ok
+fluview_severity_human	fluview_severity human	cdc_fluview_severity.py	60614 --weeks 104 --recent 12	0	1	1110	0	ok
+fluview_severity_json	fluview_severity json	cdc_fluview_severity.py	60614 --weeks 104 --recent 12 --json	0	1	3161	0	ok
+wastewater_human_default	wastewater human default	cdc_wastewater.py	60614	0	2	1003	0	ok
+wastewater_json_default	wastewater json default	cdc_wastewater.py	60614 --json	0	1	1003	0	ok
+wastewater_json_all	wastewater json all	cdc_wastewater.py	60614 --all --json	0	5	2023	0	ok
+wastewater_db_json	wastewater db json	cdc_wastewater.py	60614 --db --json	0	1	1098	0	ok
+wastewater_db_all_json	wastewater db all json	cdc_wastewater.py	60614 --db --all --json	0	3	2118	0	ok

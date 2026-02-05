@@ -1,0 +1,124 @@
+ZIP: 60614 -> Chicago, Illinois (IL)
+County: Cook County | FIPS: 17031
+
+CDC FluView “Severity” (state-level)
+
+Lab positivity (clinical labs)
+Region: IL (state-level)
+Metric used: percent_positive
+Lookback used: 104 weeks
+Recent points shown: 12
+Last-3 median: 7.89
+Prev-3 median: 9.42
+Risk: moderate | Trend: falling | Confidence: high
+
+Most recent weeks:
+- 202603 | 7.940 | percent_positive
+- 202602 | 7.890 | percent_positive
+- 202601 | 6.970 | percent_positive
+- 202552 | 17.170 | percent_positive
+- 202551 | 9.420 | percent_positive
+- 202550 | 2.890 | percent_positive
+- 202549 | 1.670 | percent_positive
+- 202548 | 0.840 | percent_positive
+- 202547 | 0.410 | percent_positive
+- 202546 | 0.500 | percent_positive
+- 202545 | 0.460 | percent_positive
+- 202544 | 0.160 | percent_positive
+
+Hospitalizations (FluSurv-NET)
+Region: IL (state-level)
+Metric used: hospitalization rates (network coverage varies)
+Lookback used: 104 weeks
+Recent points shown: 0
+Risk: unknown | Trend: unknown | Confidence: low
+Note: FluSurv-NET hospitalization rates are not available for this state (limited network coverage).
+
+{
+  "zip_code": "60614",
+  "place": "Chicago",
+  "state_name": "Illinois",
+  "state_abbr": "IL",
+  "county_name": "Cook County",
+  "county_fips": "17031",
+  "generated_at": "2026-02-05T17:03:20.707111+00:00",
+  "generated_date": "2026-02-05",
+  "source": "delphi_epidata_fluview_clinical",
+  "weeks_requested": 104,
+  "results": {
+    "lab_positivity": {
+      "region": "il",
+      "metric": "percent_positive",
+      "lookback_weeks": 104,
+      "recent_points": 12,
+      "last3_median": 7.89,
+      "prev3_median": 9.42,
+      "risk": "moderate",
+      "trend": "falling",
+      "confidence": "high",
+      "note": null,
+      "recent": [
+        {
+          "epiweek": 202544,
+          "percent_positive": 0.16
+        },
+        {
+          "epiweek": 202545,
+          "percent_positive": 0.46
+        },
+        {
+          "epiweek": 202546,
+          "percent_positive": 0.5
+        },
+        {
+          "epiweek": 202547,
+          "percent_positive": 0.41
+        },
+        {
+          "epiweek": 202548,
+          "percent_positive": 0.84
+        },
+        {
+          "epiweek": 202549,
+          "percent_positive": 1.67
+        },
+        {
+          "epiweek": 202550,
+          "percent_positive": 2.89
+        },
+        {
+          "epiweek": 202551,
+          "percent_positive": 9.42
+        },
+        {
+          "epiweek": 202552,
+          "percent_positive": 17.17
+        },
+        {
+          "epiweek": 202601,
+          "percent_positive": 6.97
+        },
+        {
+          "epiweek": 202602,
+          "percent_positive": 7.89
+        },
+        {
+          "epiweek": 202603,
+          "percent_positive": 7.94
+        }
+      ]
+    },
+    "hospitalizations": {
+      "region": "il",
+      "metric": "hospitalizations",
+      "lookback_weeks": 104,
+      "recent_points": 0,
+      "risk": "unknown",
+      "trend": "unknown",
+      "confidence": "low",
+      "note": "FluSurv-NET hospitalization rates are not available for this state (limited network coverage).",
+      "recent": []
+    }
+  },
+  "db": null
+}
