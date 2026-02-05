@@ -309,28 +309,16 @@ def build_summary_for_zip(zip_code: str, *, pathogen: str, weeks: int) -> Summar
 # DB persistence (Postgres)
 # ---------------------------
 
-DDL = r"""
-CREATE TABLE IF NOT EXISTS signal_snapshots (
-  id bigserial PRIMARY KEY,
-  zip_code text NOT NULL,
-  signal_type text NOT NULL,
-  generated_at timestamptz NOT NULL,
-  payload jsonb NOT NULL,
-
-  -- optional standardized fields (nullable)
-  pathogen text,
-  geo_level text,
-  geo_id text,
-  state text,
-  county_fips text,
-  risk_level text,
-  trend text,
-  confidence text,
-  composite_score double precision
+DDL = """
+CREATE TABLE IF NOT EXISTS nssp_ed_visits_snapshots (
+  id BIGSERIAL PRIMARY KEY,
+  zip_code TEXT NOT NULL,
+  state_abbr TEXT NOT NULL,
+  pathogen TEXT NOT NULL,
+  lookback_weeks INT NOT NULL,
+  generated_at TIMESTAMPTZ NOT NULL,
+  payload JSONB NOT NULL
 );
-
-CREATE INDEX IF NOT EXISTS idx_signal_snapshots_zip_type_time
-  ON signal_snapshots(zip_code, signal_type, generated_at DESC);
 """
 
 
@@ -342,8 +330,13 @@ def _db_connect():
         import psycopg2  # type: ignore
     except Exception as e:
         raise RuntimeError("psycopg2 is not installed in this environment.") from e
-    return psycopg2.connect(url)
-
+    conn = psycopg2.connect(url, connect_timeout=10)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout TO 90000;")  # 90s
+    except Exception:
+        pass
+    return conn
 
 
 def db_save(summary: Summary) -> int:
@@ -355,33 +348,30 @@ def db_save(summary: Summary) -> int:
             cur.execute(DDL)
             cur.execute(
                 """
-                INSERT INTO signal_snapshots
-                  (zip_code, signal_type, generated_at, payload,
-                   pathogen, geo_level, geo_id, state, county_fips,
-                   risk_level, trend, confidence, composite_score)
+                INSERT INTO nssp_ed_visits_snapshots
+                  (zip_code, state_abbr, pathogen, lookback_weeks, generated_at, payload)
                 VALUES
-                  (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                  (%s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
                     summary.zip_code,
-                    "nssp_ed_visits",
-                    summary.generated_at,
-                    json.dumps(payload),
-                    summary.pathogen,
-                    "zip",
-                    summary.zip_code,
                     summary.state_abbr,
-                    summary.county_fips,
-                    summary.risk,
-                    summary.trend,
-                    summary.confidence,
-                    (summary.scores or {}).get("composite_score"),
+                    summary.pathogen,
+                    summary.lookback_weeks,
+                    summary.generated_at,  # ISO string is OK; Postgres will cast for TIMESTAMPTZ
+                    json.dumps(payload),
                 ),
             )
-            new_id = cur.fetchone()[0]
-        conn.commit()
-    return int(new_id)
+            new_id = int(cur.fetchone()[0])
+            conn.commit()
+            return new_id
+
+
+# ---------------------------
+# Output
+# ---------------------------
+
 def print_human(summary: Summary) -> None:
     print(f"ZIP: {summary.zip_code} -> {summary.place}, {summary.state_name} ({summary.state_abbr})")
     print(f"County: {summary.county_name} | FIPS: {summary.county_fips}\n")
