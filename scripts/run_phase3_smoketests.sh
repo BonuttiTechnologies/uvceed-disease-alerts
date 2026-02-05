@@ -1,26 +1,16 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Phase 3 smoke tests (v3, robust HTTP diagnostics)
+# Phase 3 smoke tests (v4)
+# Fixes a bash redirection bug from v3 where the heredoc Python program
+# was replaced by JSON input, causing "NameError: name 'null' is not defined".
+#
 # - Ensures schema
 # - Starts API locally
 # - Calls /health
-# - Calls /signals/latest for a KNOWN zip (default 60614)
-# - Prompts user for a NEW zip and calls /signals/latest for it
-#
-# Key improvement vs v2:
-# - Does NOT use curl -f (which can hide error bodies)
-# - Captures HTTP status + body and prints helpful diagnostics
-#
-# Requires env:
-#   DATABASE_URL
-# Optional:
-#   UVCEED_API_KEY (if set, tests include Authorization header)
-#
-# Optional env overrides:
-#   PORT=8001
-#   KNOWN_ZIP=60614
-#   BASE_URL=http://127.0.0.1:8001
+# - Calls /signals/latest for a KNOWN zip (default 60614) and validates shape
+# - Prompts user for a NEW zip and calls /signals/latest for it and validates shape
+# - Prints HTTP status + body for transparency
 
 PORT="${PORT:-8001}"
 KNOWN_ZIP="${KNOWN_ZIP:-60614}"
@@ -44,35 +34,37 @@ prompt_zip () {
   echo "$z"
 }
 
-curl_json () {
-  # usage: curl_json "/path?query"
+pretty_and_check () {
+  # Reads JSON from stdin, validates required shape, pretty-prints.
+  python3 - <<'PY'
+import json,sys
+j=json.load(sys.stdin)
+assert "signals" in j, "missing signals"
+for k in ("wastewater","nssp_ed_visits"):
+    assert k in j["signals"], f"missing {k}"
+print(json.dumps(j, indent=2))
+PY
+}
+
+curl_show () {
   local path="$1"
   local url="${BASE_URL}${path}"
   local tmp_body
   tmp_body="$(mktemp)"
   local http_code
   http_code="$(curl -sS "${AUTH_HEADER[@]}" -o "$tmp_body" -w "%{http_code}" "$url" || true)"
-
   echo
   echo "GET ${path}  -> HTTP ${http_code}"
   echo "---- body ----"
   cat "$tmp_body"
   echo
   echo "--------------"
-
   if [[ "$http_code" != "200" ]]; then
     echo "ERROR: expected HTTP 200, got ${http_code} for ${path}" >&2
     rm -f "$tmp_body"
     exit 1
   fi
-
-  # Validate JSON (and pretty print)
-  python3 - <<PY <"$tmp_body"
-import json,sys
-j=json.load(sys.stdin)
-print(json.dumps(j, indent=2))
-PY
-
+  cat "$tmp_body" | python3 -c 'import json,sys; j=json.load(sys.stdin); print(json.dumps(j, indent=2))'
   rm -f "$tmp_body"
 }
 
@@ -93,8 +85,10 @@ for i in {1..60}; do
   sleep 0.25
 done
 
-curl_json "/health"
+# /health
+curl_show "/health"
 
+# known zip
 echo
 echo "Known ZIP smoke test (shape check)"
 tmp="$(mktemp)"
@@ -108,16 +102,10 @@ if [[ "$code" != "200" ]]; then
   rm -f "$tmp"
   exit 1
 fi
-python3 - <<'PY' <"$tmp"
-import json,sys
-j=json.load(sys.stdin)
-assert "signals" in j, "missing signals"
-for k in ("wastewater","nssp_ed_visits"):
-    assert k in j["signals"], f"missing {k}"
-print(json.dumps(j, indent=2))
-PY
+cat "$tmp" | pretty_and_check
 rm -f "$tmp"
 
+# new zip
 echo
 NEW_ZIP="$(prompt_zip "Enter a NEW ZIP to test read-through cache (ideally not already in DB)" "62401")"
 
@@ -134,17 +122,15 @@ if [[ "$code" != "200" ]]; then
   rm -f "$tmp"
   exit 1
 fi
-python3 - <<'PY' <"$tmp"
+cat "$tmp" | pretty_and_check
+# Warn if refreshed is false
+python3 - <<'PY' <(cat "$tmp")
 import json,sys
 j=json.load(sys.stdin)
-assert "signals" in j, "missing signals"
-for k in ("wastewater","nssp_ed_visits"):
-    assert k in j["signals"], f"missing {k}"
 if not j.get("refreshed", False):
     print("WARN: refreshed=false. This likely means the ZIP already had fresh cached data in signal_snapshots.")
-print(json.dumps(j, indent=2))
 PY
 rm -f "$tmp"
 
 echo
-echo "OK: Phase 3 smoke tests (v3) passed."
+echo "OK: Phase 3 smoke tests (v4) passed."
