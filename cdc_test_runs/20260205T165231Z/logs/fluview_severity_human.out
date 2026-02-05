@@ -1,0 +1,36 @@
+ZIP: 60614 -> Chicago, Illinois (IL)
+County: Cook County | FIPS: 17031
+
+CDC FluView “Severity” (state-level)
+
+Lab positivity (clinical labs)
+Region: IL (state-level)
+Metric used: percent_positive
+Lookback used: 104 weeks
+Recent points shown: 12
+Last-3 median: 7.89
+Prev-3 median: 9.42
+Risk: moderate | Trend: falling | Confidence: high
+
+Most recent weeks:
+- 202603 | 7.940 | percent_positive
+- 202602 | 7.890 | percent_positive
+- 202601 | 6.970 | percent_positive
+- 202552 | 17.170 | percent_positive
+- 202551 | 9.420 | percent_positive
+- 202550 | 2.890 | percent_positive
+- 202549 | 1.670 | percent_positive
+- 202548 | 0.840 | percent_positive
+- 202547 | 0.410 | percent_positive
+- 202546 | 0.500 | percent_positive
+- 202545 | 0.460 | percent_positive
+- 202544 | 0.160 | percent_positive
+
+Hospitalizations (FluSurv-NET)
+Region: IL (state-level)
+Metric used: hospitalization rates (network coverage varies)
+Lookback used: 104 weeks
+Recent points shown: 0
+Risk: unknown | Trend: unknown | Confidence: low
+Note: FluSurv-NET hospitalization rates are not available for this state (limited network coverage).
+
