@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_wastewater.py", line 21, in <module>
+    from uvceed_alerts.geo import lookup_zip
+ImportError: cannot import name 'lookup_zip' from 'uvceed_alerts.geo' (/home/uvceed/uvceed-disease-alerts/uvceed_alerts/geo.py)

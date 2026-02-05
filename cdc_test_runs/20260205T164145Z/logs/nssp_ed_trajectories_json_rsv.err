@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/home/uvceed/uvceed-disease-alerts/uvceed_alerts/cdc_nssp_ed_trajectories.py", line 36, in <module>
+    import datetime as dt, datetime, timedelta
+ModuleNotFoundError: No module named 'timedelta'

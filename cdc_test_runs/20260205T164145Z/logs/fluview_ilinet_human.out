@@ -1,0 +1,25 @@
+ZIP: 60614 -> Chicago, Illinois (IL)
+County: Cook County | FIPS: 17031
+
+CDC FluView / ILINet (weekly outpatient ILI)
+Region: IL (state-level)
+Metric used: wili
+Lookback used: 104 weeks
+Recent points shown: 12
+Last-3 median: 2.7
+Prev-3 median: 4.02
+Risk: high | Trend: falling | Confidence: high
+
+Most recent weeks:
+- 202603 | 2.34 | wili
+- 202602 | 2.7 | wili
+- 202601 | 3.09 | wili
+- 202553 | 4.02 | wili
+- 202552 | 4.38 | wili
+- 202551 | 2.74 | wili
+- 202550 | 1.64 | wili
+- 202549 | 1.43 | wili
+- 202548 | 1.31 | wili
+- 202547 | 1.16 | wili
+- 202546 | 1.04 | wili
+- 202545 | 1.03 | wili
