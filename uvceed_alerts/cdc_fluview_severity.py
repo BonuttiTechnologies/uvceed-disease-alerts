@@ -16,10 +16,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import math
 import statistics
 from dataclasses import asdict, dataclass
 from datetime import date
+import datetime as dt
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -242,12 +244,64 @@ def build_hospitalization_summary(state_abbr: str, weeks_lookback: int) -> HospS
     )
 
 
+# ---------------------------
+# DB persistence
+# ---------------------------
+
+DDL_SEVERITY = r"""
+CREATE TABLE IF NOT EXISTS fluview_severity_snapshots (
+  id bigserial PRIMARY KEY,
+  zip_code text NOT NULL,
+  state_abbr text NOT NULL,
+  weeks_requested int NOT NULL,
+  generated_at timestamptz NOT NULL,
+  payload jsonb NOT NULL
+);
+"""
+
+def _db_connect():
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if not url:
+        raise RuntimeError("DATABASE_URL is not set.")
+    try:
+        import psycopg2  # type: ignore
+    except Exception as e:
+        raise RuntimeError("psycopg2 is not installed in this environment.") from e
+    return psycopg2.connect(url)
+
+
+def db_save_severity(payload: Dict[str, Any]) -> int:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(DDL_SEVERITY)
+            cur.execute(
+                """
+                INSERT INTO fluview_severity_snapshots
+                  (zip_code, state_abbr, weeks_requested, generated_at, payload)
+                VALUES
+                  (%s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    payload.get("zip_code"),
+                    payload.get("state_abbr"),
+                    int(payload.get("weeks_requested") or 0),
+                    payload.get("generated_at"),
+                    json.dumps(payload),
+                ),
+            )
+            new_id = int(cur.fetchone()[0])
+            conn.commit()
+            return new_id
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("zip_code", help="5-digit ZIP code")
     ap.add_argument("--weeks", type=int, default=DEFAULT_WEEKS_LOOKBACK, help="lookback window in weeks (default: 104)")
     ap.add_argument("--recent", type=int, default=DEFAULT_RECENT_WEEKS_SHOWN, help="recent points to show (default: 12)")
-    ap.add_argument("--json", action="store_true", help="emit machine-readable JSON at end")
+    ap.add_argument("--json", action="store_true", help="also print JSON output")
+    ap.add_argument("--json-only", action="store_true", help="print JSON only (no human summary)")
+    ap.add_argument("--db", action="store_true", help="save JSON snapshot to Postgres via DATABASE_URL")
     args = ap.parse_args()
 
     geo = zip_to_county(args.zip_code)
@@ -287,23 +341,39 @@ def main() -> int:
         print(f"Note: {hosp.note}")
     print("")
 
+    generated_at = dt.datetime.utcnow().isoformat()
+
+    payload = {
+        "zip_code": geo.zip_code,
+        "place": geo.place,
+        "state_name": geo.state_name,
+        "state_abbr": geo.state_abbr,
+        "county_name": geo.county_name,
+        "county_fips": geo.county_fips,
+        "generated_at": generated_at,
+        "generated_date": date.today().isoformat(),
+        "source": "delphi_epidata_fluview_clinical",
+        "weeks_requested": args.weeks,
+        "results": {
+            "lab_positivity": asdict(lab),
+            "hospitalizations": asdict(hosp),
+        },
+        "db": None,
+    }
+
+    if args.db:
+        try:
+            snapshot_id = db_save_severity(payload)
+            payload["db"] = {"snapshot_id": snapshot_id}
+        except Exception as e:
+            payload["results"]["lab_positivity"]["note"] = (payload["results"]["lab_positivity"].get("note") or "") + f" | DB save failed: {e}"
+
+    if args.json_only:
+        print(json.dumps(payload, indent=2, sort_keys=False, default=str))
+        return 0
+
     if args.json:
-        payload = {
-            "zip_code": geo.zip_code,
-            "place": geo.place,
-            "state_name": geo.state_name,
-            "state_abbr": geo.state_abbr,
-            "county_name": geo.county_name,
-            "county_fips": geo.county_fips,
-            "generated_date": date.today().isoformat(),
-            "source": "delphi_epidata_fluview_clinical",
-            "weeks_requested": args.weeks,
-            "results": {
-                "lab_positivity": asdict(lab),
-                "hospitalizations": asdict(hosp),
-            },
-        }
-        print(json.dumps(payload, indent=2, sort_keys=False))
+        print(json.dumps(payload, indent=2, sort_keys=False, default=str))
 
     return 0
 

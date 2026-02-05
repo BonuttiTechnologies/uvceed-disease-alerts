@@ -27,11 +27,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import sys
 import time
 from dataclasses import asdict
-from datetime import date, datetime, timedelta
+from datetime import date
+import datetime as dt, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -519,6 +521,59 @@ def describe_dataset(state_abbr: str) -> int:
     return 0
 
 
+# ---------------------------
+# DB persistence
+# ---------------------------
+
+DDL_TRAJ = r"""
+CREATE TABLE IF NOT EXISTS nssp_ed_trajectories_snapshots (
+  id bigserial PRIMARY KEY,
+  zip_code text NOT NULL,
+  state_abbr text NOT NULL,
+  pathogen text NOT NULL,
+  weeks_requested int NOT NULL,
+  generated_at timestamptz NOT NULL,
+  payload jsonb NOT NULL,
+  UNIQUE(zip_code, state_abbr, pathogen, weeks_requested, generated_at)
+);
+"""
+
+def _db_connect():
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if not url:
+        raise RuntimeError("DATABASE_URL is not set.")
+    try:
+        import psycopg2  # type: ignore
+    except Exception as e:
+        raise RuntimeError("psycopg2 is not installed in this environment.") from e
+    return psycopg2.connect(url)
+
+
+def db_save_trajectories(payload: Dict[str, Any]) -> int:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(DDL_TRAJ)
+            cur.execute(
+                """
+                INSERT INTO nssp_ed_trajectories_snapshots
+                  (zip_code, state_abbr, pathogen, weeks_requested, generated_at, payload)
+                VALUES
+                  (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    payload.get("zip_code"),
+                    payload.get("state_abbr"),
+                    payload.get("pathogen"),
+                    int(payload.get("weeks_requested") or 0),
+                    payload.get("generated_at"),
+                    json.dumps(payload),
+                ),
+            )
+            new_id = int(cur.fetchone()[0])
+            conn.commit()
+            return new_id
+
 # ------------------------------------------------------------
 # CLI
 # ------------------------------------------------------------
@@ -545,7 +600,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument(
         "--json",
         action="store_true",
-        help="Output JSON payload",
+        help="also print JSON payload",
+    )
+
+    parser.add_argument(
+        "--json-only",
+        action="store_true",
+        help="print JSON only (no human text)",
+    )
+
+    parser.add_argument(
+        "--db",
+        action="store_true",
+        help="save JSON snapshot to Postgres via DATABASE_URL",
     )
 
     parser.add_argument(
@@ -577,27 +644,47 @@ def main(argv: Optional[List[str]] = None) -> int:
         weeks=args.weeks,
     )
 
+    geo = zip_to_county(args.zip_code)
+    generated_at = dt.datetime.utcnow().isoformat()
+
+    payload = {
+        "zip_code": args.zip_code,
+        "place": geo.place,
+        "state_name": geo.state_name,
+        "state_abbr": geo.state_abbr,
+        "county_name": geo.county_name,
+        "county_fips": geo.county_fips,
+        "generated_at": generated_at,
+        "generated_date": date.today().isoformat(),
+        "source": "cdc_socrata_nssp_ed_trajectories_numeric",
+        "dataset_id": DATASET_ID,
+        "weeks_requested": args.weeks,
+        "pathogen": args.pathogen,
+        "results": result,
+        "db": None,
+    }
+
+    if args.db:
+        try:
+            snapshot_id = db_save_trajectories(payload)
+            payload["db"] = {"snapshot_id": snapshot_id}
+        except Exception as e:
+            payload["results"]["note"] = (payload["results"].get("note") or "") + f" | DB save failed: {e}"
+
+    if args.json_only:
+        print(json.dumps(payload, indent=2, default=str))
+        return 0
+
+    print(header)
+    if payload.get("db") and payload["db"].get("snapshot_id"):
+        print(f"\nSaved snapshot to DB (nssp_ed_trajectories_snapshots.id={payload['db']['snapshot_id']})")
+
+    print("\nMost recent weeks:")
+    for item in result["recent"][:12]:
+        print(f"- {item['week_end']} | {item['value']:.2f}")
+
     if args.json:
-        geo = zip_to_county(args.zip_code)
-        payload = {
-            "zip_code": args.zip_code,
-            "place": geo.place,
-            "state_name": geo.state_name,
-            "state_abbr": geo.state_abbr,
-            "county_name": geo.county_name,
-            "county_fips": geo.county_fips,
-            "generated_date": date.today().isoformat(),
-            "source": "cdc_socrata_nssp_ed_trajectories_numeric",
-            "dataset_id": DATASET_ID,
-            "weeks_requested": args.weeks,
-            "results": result,
-        }
-        print(json.dumps(payload, indent=2))
-    else:
-        print(header)
-        print("\nMost recent weeks:")
-        for item in result["recent"][:12]:
-            print(f"- {item['week_end']} | {item['value']:.2f}")
+        print("\n" + json.dumps(payload, indent=2, default=str))
 
     return 0
 

@@ -21,7 +21,6 @@ import requests
 from uvceed_alerts.geo import lookup_zip
 from uvceed_alerts.config import (
     CDC_APP_TOKEN,
-    DATABASE_URL,
 )
 
 DATASET_ID = "j9g8-acpt"
@@ -151,12 +150,40 @@ def analyze_series(rows: List[Dict]) -> Dict:
     }
 
 
-def save_to_db(snapshot: Dict) -> int:
-    if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL not set")
+SIGNAL_DDL = r"""
+CREATE TABLE IF NOT EXISTS signal_snapshots (
+  id bigserial PRIMARY KEY,
+  signal_type text NOT NULL,
+  pathogen text,
+  geo_level text,
+  geo_id text,
+  zip_code text,
+  state text,
+  county_fips text,
+  generated_at timestamptz NOT NULL,
+  risk_level text,
+  trend text,
+  confidence text,
+  composite_score double precision,
+  payload jsonb NOT NULL
+);
+"""
 
-    conn = psycopg2.connect(DATABASE_URL)
+def _db_connect():
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if not url:
+        raise RuntimeError("DATABASE_URL is not set.")
+    try:
+        import psycopg2  # type: ignore
+    except Exception as e:
+        raise RuntimeError("psycopg2 is not installed in this environment.") from e
+    return psycopg2.connect(url)
+
+def save_to_db(snapshot: Dict) -> int:
+    conn = _db_connect()
     cur = conn.cursor()
+    # ensure table exists
+    cur.execute(SIGNAL_DDL)
 
     cur.execute(
         """
@@ -195,7 +222,7 @@ def save_to_db(snapshot: Dict) -> int:
         ),
     )
 
-    row_id = cur.fetchone()[0]
+    row_id = int(cur.fetchone()[0])
     conn.commit()
     cur.close()
     conn.close()

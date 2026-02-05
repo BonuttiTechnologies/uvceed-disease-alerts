@@ -17,9 +17,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from dataclasses import dataclass
 from datetime import date
+import datetime as dt
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -340,12 +342,66 @@ def _print_human(header: Dict[str, Any], ilinet: ILINetResult) -> None:
             print(f"- {ew} | {val:.3g} | {ilinet.metric}")
 
 
+# ---------------------------
+# DB persistence
+# ---------------------------
+
+DDL_ILINET = r"""
+CREATE TABLE IF NOT EXISTS fluview_ilinet_snapshots (
+  id bigserial PRIMARY KEY,
+  zip_code text NOT NULL,
+  state_abbr text NOT NULL,
+  lookback_weeks int NOT NULL,
+  weeks_requested int NOT NULL,
+  generated_at timestamptz NOT NULL,
+  payload jsonb NOT NULL
+);
+"""
+
+def _db_connect():
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if not url:
+        raise RuntimeError("DATABASE_URL is not set.")
+    try:
+        import psycopg2  # type: ignore
+    except Exception as e:
+        raise RuntimeError("psycopg2 is not installed in this environment.") from e
+    return psycopg2.connect(url)
+
+
+def db_save_ilinet(payload: Dict[str, Any]) -> int:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(DDL_ILINET)
+            cur.execute(
+                """
+                INSERT INTO fluview_ilinet_snapshots
+                  (zip_code, state_abbr, lookback_weeks, weeks_requested, generated_at, payload)
+                VALUES
+                  (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    payload.get("zip_code"),
+                    payload.get("state_abbr"),
+                    int(payload["results"]["lookback_weeks"]),
+                    int(payload.get("weeks_requested") or 0),
+                    payload.get("generated_at"),
+                    json.dumps(payload),
+                ),
+            )
+            new_id = int(cur.fetchone()[0])
+            conn.commit()
+            return new_id
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="CDC FluView / ILINet ingestion (state-level) for a ZIP code.")
     ap.add_argument("zip_code", help="5-digit ZIP code")
     ap.add_argument("--weeks", type=int, default=12, help="How many recent epiweeks to print (default: 12)")
     ap.add_argument("--lookback-weeks", type=int, default=104, help="Lookback window for baselining (default: 104)")
-    ap.add_argument("--json", action="store_true", help="Emit JSON payload to stdout (after human summary)")
+    ap.add_argument("--json", action="store_true", help="also print JSON payload")
+    ap.add_argument("--json-only", action="store_true", help="print JSON only (no human summary)")
+    ap.add_argument("--db", action="store_true", help="save JSON snapshot to Postgres via DATABASE_URL")
     args = ap.parse_args()
 
     header, ilinet = build_ilinet_summary_for_zip(
@@ -354,28 +410,45 @@ def main() -> int:
         lookback_weeks=max(12, args.lookback_weeks),
     )
 
+    generated_at = dt.datetime.utcnow().isoformat()
+
+    payload = {
+        **header,
+        "generated_at": generated_at,
+        "generated_date": str(date.today()),
+        "source": "delphi_epidata_fluview",
+        "weeks_requested": args.weeks,
+        "results": {
+            "region": ilinet.region,
+            "metric": ilinet.metric,
+            "lookback_weeks": ilinet.lookback_weeks,
+            "recent_points": ilinet.points,
+            "last3_median": ilinet.last3_median,
+            "prev3_median": ilinet.prev3_median,
+            "risk": ilinet.risk,
+            "trend": ilinet.trend,
+            "confidence": ilinet.confidence,
+            "note": ilinet.note,
+            "recent": ilinet.recent,
+        },
+        "db": None,
+    }
+
+    if args.db:
+        try:
+            snapshot_id = db_save_ilinet(payload)
+            payload["db"] = {"snapshot_id": snapshot_id}
+        except Exception as e:
+            payload["results"]["note"] = (payload["results"].get("note") or "") + f" | DB save failed: {e}"
+
+    if args.json_only:
+        print(json.dumps(payload, indent=2, sort_keys=False, default=str))
+        return 0
+
     _print_human(header, ilinet)
 
     if args.json:
-        payload = {
-            **header,
-            "generated_date": str(date.today()),
-            "source": "delphi_epidata_fluview",
-            "results": {
-                "region": ilinet.region,
-                "metric": ilinet.metric,
-                "lookback_weeks": ilinet.lookback_weeks,
-                "recent_points": ilinet.points,
-                "last3_median": ilinet.last3_median,
-                "prev3_median": ilinet.prev3_median,
-                "risk": ilinet.risk,
-                "trend": ilinet.trend,
-                "confidence": ilinet.confidence,
-                "note": ilinet.note,
-                "recent": ilinet.recent,
-            },
-        }
-        print("\n" + json.dumps(payload, indent=2, sort_keys=False))
+        print("\n" + json.dumps(payload, indent=2, sort_keys=False, default=str))
 
     return 0
 
