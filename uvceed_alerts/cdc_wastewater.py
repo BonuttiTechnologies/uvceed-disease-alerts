@@ -220,26 +220,67 @@ def main():
     parser.add_argument("--all", action="store_true")
     args = parser.parse_args()
 
+# Geo lookup can fail for some ZIPs (missing / unmapped).
+# Per project requirement: never crash on missing data — return "unknown" instead.
+try:
     geo = lookup_zip(args.zip)
+except Exception as e:
+    geo = None
+    geo_error = str(e)
+
+if not geo or not geo.get("county_fips"):
+    snapshot = {
+        "zip_code": args.zip,
+        "place": (geo.get("place") if isinstance(geo, dict) else args.zip),
+        "state_name": (geo.get("state_name") if isinstance(geo, dict) else None),
+        "state_abbr": (geo.get("state_abbr") if isinstance(geo, dict) else None),
+        "county_name": (geo.get("county_name") if isinstance(geo, dict) else None),
+        "county_fips": (geo.get("county_fips") if isinstance(geo, dict) else None),
+        "generated_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00","Z"),
+        "days_requested": DEFAULT_WINDOW_DAYS,
+        "results": [],
+        "rollup": {
+            "overall_level": "unknown",
+            "overall_trend": "unknown",
+            "overall_confidence": "low",
+            "overall_score": 0.0,
+            "suggestion": "Insufficient ZIP→county mapping to compute wastewater risk.",
+            "per_pathogen_scores": {},
+            "note": ("geo lookup failed: " + geo_error) if "geo_error" in locals() else "geo lookup unavailable",
+        },
+    }
+
+    if args.db:
+        db_id = save_to_db(snapshot)
+        snapshot["rollup"]["db"] = {"signal_snapshots_id": db_id}
+        print(f"Saved snapshot to DB (signal_snapshots.id={db_id})")
+
+    print(json.dumps(snapshot, indent=2))
+    return
+
 
     results = []
     scores = {}
 
     for pathogen, pcr in PATHOGENS.items():
-        rows = fetch_wastewater(
-            geo["county_fips"],
-            pcr,
-            DEFAULT_WINDOW_DAYS,
-        )
-
-        if not rows:
+        try:
             rows = fetch_wastewater(
                 geo["county_fips"],
                 pcr,
-                FALLBACK_WINDOW_DAYS,
+                DEFAULT_WINDOW_DAYS,
             )
 
-        analysis = analyze_series(rows)
+            if not rows:
+                rows = fetch_wastewater(
+                    geo["county_fips"],
+                    pcr,
+                    FALLBACK_WINDOW_DAYS,
+                )
+            note_override = None
+        except Exception as e:
+            rows = []
+            note_override = f"fetch failed: {str(e)}"
+analysis = analyze_series(rows)
 
         risk_score = 0.6 if analysis["risk"] == "moderate" else 1.0 if analysis["risk"] == "high" else 0.0
         trend_score = -0.25 if analysis["trend"] == "falling" else 0.25 if analysis["trend"] == "rising" else 0.0
@@ -261,7 +302,7 @@ def main():
             "risk": analysis["risk"],
             "trend": analysis["trend"],
             "confidence": analysis["confidence"],
-            "note": None if rows else "no wastewater data returned",
+            "note": (note_override if note_override else (None if rows else "no wastewater data returned")),
             "risk_score": risk_score,
             "trend_score": trend_score,
             "confidence_score": conf_score,
@@ -281,7 +322,7 @@ def main():
         "state_abbr": geo["state_abbr"],
         "county_name": geo["county_name"],
         "county_fips": geo["county_fips"],
-        "generated_at": dt.datetime.utcnow().isoformat(timespec="seconds"),
+        "generated_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00","Z"),
         "days_requested": DEFAULT_WINDOW_DAYS,
         "results": results,
         "rollup": {
