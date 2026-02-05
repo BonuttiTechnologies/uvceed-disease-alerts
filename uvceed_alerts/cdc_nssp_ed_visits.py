@@ -1,277 +1,271 @@
+#!/usr/bin/env python3
 """
-cdc_nssp_ed_visits.py
+CDC NSSP ED Visit Trends (weekly) — direction categories (Increasing/Decreasing/Stable).
 
-CDC NSSP Emergency Department (ED) Visit Trends by county FIPS (ZIP -> county FIPS).
+Dataset: rdmq-nq56 (CDC Socrata)
 
-IMPORTANT:
-- This CDC Socrata dataset reports *trend direction* categories, NOT severity levels.
-  Values are typically: "Increasing", "Decreasing", "No Change".
-- Therefore:
-  - risk is derived from direction (Increasing->high, No Change->moderate, Decreasing->low)
-  - trend compares recent direction vs prior direction
+This script:
+- resolves ZIP -> (place/state/county/fips)
+- queries NSSP ED trend categories for a given state (via geography='Illinois', etc.)
+- summarizes last-3 vs prev-3 (mode)
+- outputs human-readable summary
+- optional JSON output (--json / --json-only)
+- optional DB persistence to Postgres (--db) via DATABASE_URL
 
-Data source (Socrata / CDC):
-- https://data.cdc.gov/resource/rdmq-nq56.json
-
-Common fields:
-- week_end (ISO date)
-- geography (state name)
-- county
-- fips (county FIPS, e.g., 17031)
-- ed_trends_covid
-- ed_trends_influenza
-- ed_trends_rsv
-- hsa / hsa_counties / hsa_nci_id
-- trend_source
-- buildnumber
-
-Usage:
+Examples:
   python -m uvceed_alerts.cdc_nssp_ed_visits 60614 --pathogen combined --weeks 16
-  python -m uvceed_alerts.cdc_nssp_ed_visits 60614 --pathogen flu --weeks 16
-  python -m uvceed_alerts.cdc_nssp_ed_visits 60614 --pathogen rsv --weeks 16 --json
-  python -m uvceed_alerts.cdc_nssp_ed_visits 60614 --describe
+  python -m uvceed_alerts.cdc_nssp_ed_visits 60614 --pathogen combined --weeks 16 --json
+  python -m uvceed_alerts.cdc_nssp_ed_visits 60614 --pathogen combined --weeks 16 --json-only
+  python -m uvceed_alerts.cdc_nssp_ed_visits 60614 --pathogen combined --weeks 16 --db --json
 """
 
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import json
-import sys
-import time
-from dataclasses import asdict, dataclass
+import os
+from collections import Counter
+from dataclasses import dataclass, asdict, replace
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
-from uvceed_alerts.geo import zip_to_county  # GeoResult dataclass
+from uvceed_alerts.geo import zip_to_county
 
 
-SOC_DATASET_ID = "rdmq-nq56"
-SOC_BASE = f"https://data.cdc.gov/resource/{SOC_DATASET_ID}.json"
-
-PATHOGEN_TO_FIELD = {
-    "covid": "ed_trends_covid",
-    "flu": "ed_trends_influenza",
-    "rsv": "ed_trends_rsv",
-    "combined": None,  # roll up from the three fields (direction rollup)
-}
-
-# Direction scoring (NOT severity).
-# We keep both rank (for comparing) and score (for rollups).
-DIRECTION_RANK = {
-    "decreasing": -1,
-    "no change": 0,
-    "increasing": 1,
-    "unknown": None,
-    "data unavailable": None,
-    "insufficient data": None,
-}
-
-DIRECTION_SCORE = {
-    "decreasing": -1,
-    "no change": 0,
-    "increasing": 1,
-}
+SODA_BASE = "https://data.cdc.gov/resource"
+DATASET_ID = "rdmq-nq56"
+DEFAULT_TIMEOUT = 30
 
 
-@dataclass
-class NsspPoint:
-    week_end: str  # YYYY-MM-DD
-    value: str     # Increasing / Decreasing / No Change / unknown
-    metric: str    # field name or "combined"
-    geography: Optional[str] = None
-    county: Optional[str] = None
-    trend_source: Optional[str] = None
+# ---------------------------
+# Models
+# ---------------------------
+
+@dataclass(frozen=True)
+class TrendPoint:
+    week_end: str
+    value: str  # Increasing/Decreasing/Stable/Unknown
 
 
-@dataclass
-class NsspSummary:
-    region: str
-    metric: str
+@dataclass(frozen=True)
+class Summary:
+    zip_code: str
+    place: str
+    state_name: str
+    state_abbr: str
+    county_name: str
+    county_fips: str
+    generated_at: str
+    dataset_id: str
+    pathogen: str
+    metric_used: str
     lookback_weeks: int
-    recent_points: int
+    points: List[TrendPoint]
     last3_mode: Optional[str]
     prev3_mode: Optional[str]
     risk: str
     trend: str
     confidence: str
     note: Optional[str]
-    recent: List[Dict[str, Any]]
+    scores: Dict[str, float]
+    db: Optional[Dict[str, Any]] = None
 
 
-def _today() -> dt.date:
-    return dt.date.today()
+# ---------------------------
+# Helpers
+# ---------------------------
+
+def _endpoint(dataset_id: str) -> str:
+    return f"{SODA_BASE}/{dataset_id}.json"
 
 
-def _start_date_for_weeks(weeks: int) -> dt.date:
-    return _today() - dt.timedelta(days=int(weeks * 7) + 3)
+def _escape_soql_literal(s: str) -> str:
+    # Socrata uses SQL-ish quoting. Single quotes are escaped by doubling them.
+    return s.replace("'", "''")
 
 
-def _norm(s: Optional[str]) -> str:
-    if not s:
-        return "unknown"
-    return str(s).strip().lower()
-
-
-def _pretty_direction(s: str) -> str:
-    k = _norm(s)
-    if k in ("no change", "increasing", "decreasing"):
-        return "No Change" if k == "no change" else k.title()
-    if k in ("data unavailable", "insufficient data"):
-        return k
-    return "unknown"
-
-
-def _direction_rank(direction: Optional[str]) -> Optional[int]:
-    if direction is None:
-        return None
-    return DIRECTION_RANK.get(_norm(direction), None)
+def _get_json(dataset_id: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    r = requests.get(
+        _endpoint(dataset_id),
+        params=params,
+        timeout=DEFAULT_TIMEOUT,
+        headers={"Accept": "application/json"},
+    )
+    r.raise_for_status()
+    data = r.json()
+    if not isinstance(data, list):
+        raise RuntimeError("Unexpected CDC response type (expected JSON list).")
+    return [x for x in data if isinstance(x, dict)]
 
 
 def _mode(values: List[str]) -> Optional[str]:
-    if not values:
+    vals = [v for v in values if v]
+    if not vals:
         return None
-    counts: Dict[str, int] = {}
-    for v in values:
-        k = _norm(v)
-        counts[k] = counts.get(k, 0) + 1
-    top = max(counts.items(), key=lambda kv: kv[1])[0]
-    return _pretty_direction(top)
+    c = Counter(vals)
+    return c.most_common(1)[0][0]
 
 
-def _rollup_direction(labels: List[str]) -> str:
-    # Score rollup: Increasing=+1, No Change=0, Decreasing=-1
-    scores = []
-    for lab in labels:
-        k = _norm(lab)
-        if k in DIRECTION_SCORE:
-            scores.append(DIRECTION_SCORE[k])
-    if not scores:
-        return "unknown"
-    s = sum(scores)
-    if s > 0:
-        return "Increasing"
-    if s < 0:
+def _normalize_trend_value(v: Any) -> str:
+    if v is None:
+        return "Unknown"
+    s = str(v).strip()
+    if not s:
+        return "Unknown"
+    low = s.lower()
+    if "decreas" in low:
         return "Decreasing"
-    return "No Change"
+    if "increas" in low:
+        return "Increasing"
+    if "stable" in low or "flat" in low:
+        return "Stable"
+    return s
 
 
-def _risk_from_direction(direction: Optional[str]) -> str:
-    if not direction:
+def _risk_from_last3(last3_mode: Optional[str]) -> str:
+    if not last3_mode:
         return "unknown"
-    k = _norm(direction)
-    if k == "increasing":
-        return "high"
-    if k == "no change":
+    if last3_mode == "Increasing":
         return "moderate"
-    if k == "decreasing":
+    if last3_mode in ("Decreasing", "Stable"):
         return "low"
     return "unknown"
 
 
-def _trend_from_modes(prev: Optional[str], cur: Optional[str]) -> str:
-    if not prev or not cur:
+def _trend_label(last3_mode: Optional[str], prev3_mode: Optional[str]) -> str:
+    if not last3_mode or not prev3_mode:
         return "unknown"
-    rp = _direction_rank(prev)
-    rc = _direction_rank(cur)
-    if rp is None or rc is None:
+    if last3_mode == prev3_mode:
+        if last3_mode == "Increasing":
+            return "rising"
+        if last3_mode == "Decreasing":
+            return "falling"
+        if last3_mode == "Stable":
+            return "stable"
         return "unknown"
-    if rc > rp:
+    if last3_mode == "Increasing":
         return "rising"
-    if rc < rp:
+    if last3_mode == "Decreasing":
         return "falling"
-    return "stable"
+    if last3_mode == "Stable":
+        return "stable"
+    return "unknown"
 
 
-def _confidence(recent_points: int) -> str:
-    if recent_points >= 10:
+def _confidence_from_n(n_points: int, weeks_requested: int) -> str:
+    if n_points >= min(weeks_requested, 12):
         return "high"
-    if recent_points >= 5:
+    if n_points >= 6:
         return "moderate"
+    if n_points >= 3:
+        return "low"
     return "low"
 
 
-def socrata_get(params: Dict[str, Any], timeout: int = 30, tries: int = 5) -> List[Dict[str, Any]]:
-    last_err: Optional[Exception] = None
-    for i in range(tries):
-        try:
-            r = requests.get(SOC_BASE, params=params, timeout=timeout)
-            r.raise_for_status()
-            return r.json()
-        except Exception as e:
-            last_err = e
-            wait = 1.5 * (2 ** i)
-            print(f"[warn] Socrata fetch failed (attempt {i+1}/{tries}): {e}", file=sys.stderr)
-            time.sleep(wait)
-    raise RuntimeError(f"Socrata query failed after {tries} attempts: {last_err}")
-
-
-def fetch_nssp_for_county_fips(county_fips: str, weeks: int) -> List[Dict[str, Any]]:
-    start = _start_date_for_weeks(weeks)
-    where = f"fips = '{county_fips}' AND week_end >= '{start.isoformat()}'"
-    params = {
-        "$where": where,
-        "$order": "week_end DESC",
-        "$limit": 5000,
+def _scores(risk: str, trend: str, confidence: str) -> Dict[str, float]:
+    risk_score = {"unknown": 0.0, "low": 0.25, "moderate": 0.6, "high": 1.0}.get(risk, 0.0)
+    trend_score = {"falling": -0.25, "stable": 0.0, "rising": 0.25, "unknown": 0.0}.get(trend, 0.0)
+    conf_score = {"low": 0.4, "moderate": 0.7, "high": 1.0}.get(confidence, 0.4)
+    raw = max(0.0, min(1.0, risk_score + trend_score))
+    composite = round(raw * conf_score, 6)
+    return {
+        "risk_score": float(risk_score),
+        "trend_score": float(trend_score),
+        "confidence_score": float(conf_score),
+        "composite_score": float(composite),
     }
-    return socrata_get(params)
 
 
-def build_nssp_ed_summary_for_zip(
-    zip_code: str,
-    pathogen: str,
-    weeks: int,
-) -> Tuple[Dict[str, Any], NsspSummary]:
-    geo = zip_to_county(zip_code)  # GeoResult dataclass
-    county_fips = str(getattr(geo, "county_fips"))
-    state_abbr = str(getattr(geo, "state_abbr"))
-    state_name = str(getattr(geo, "state_name"))
-    place = str(getattr(geo, "place"))
-    county_name = str(getattr(geo, "county_name"))
+def _append_note(existing: Optional[str], extra: str) -> str:
+    extra = extra.strip()
+    if not extra:
+        return existing or ""
+    if not existing:
+        return extra
+    return f"{existing} {extra}".strip()
 
-    rows = fetch_nssp_for_county_fips(county_fips, weeks)
 
-    seen_dates = set()
-    points: List[NsspPoint] = []
+# ---------------------------
+# CDC query (direction categories)
+# ---------------------------
 
-    field = PATHOGEN_TO_FIELD.get(pathogen)
-    if pathogen not in PATHOGEN_TO_FIELD:
-        raise ValueError(f"Unsupported pathogen '{pathogen}'. Use: {', '.join(PATHOGEN_TO_FIELD.keys())}")
-
-    for row in rows:
-        week_end = str(row.get("week_end", ""))[:10]
-        if not week_end or week_end in seen_dates:
-            continue
-        seen_dates.add(week_end)
-
-        geo_state = row.get("geography")
-        geo_county = row.get("county")
-        trend_source = row.get("trend_source")
-
-        if pathogen == "combined":
-            labels = [
-                str(row.get("ed_trends_covid", "")),
-                str(row.get("ed_trends_influenza", "")),
-                str(row.get("ed_trends_rsv", "")),
+def _fetch_trend_rows_for_state(state_name: str, weeks: int) -> List[Dict[str, Any]]:
+    state_name_escaped = _escape_soql_literal(state_name)
+    params = {
+        "$select": ",".join(
+            [
+                "week_end",
+                "geography",
+                "ed_trends_covid",
+                "ed_trends_influenza",
+                "ed_trends_rsv",
             ]
-            value = _rollup_direction(labels)
-            metric = "combined"
-        else:
-            raw = str(row.get(field, "")) if field else ""
-            value = _pretty_direction(raw)
-            metric = field or pathogen
+        ),
+        "$where": f"geography = '{state_name_escaped}'",
+        "$order": "week_end DESC",
+        "$limit": max(weeks, 4) * 4,  # cushion (dataset sometimes returns multiple rows per week)
+        "$offset": 0,
+    }
+    return _get_json(DATASET_ID, params)
 
-        points.append(
-            NsspPoint(
-                week_end=week_end,
-                value=value if value else "unknown",
-                metric=metric,
-                geography=geo_state,
-                county=geo_county,
-                trend_source=trend_source,
-            )
-        )
+
+def _pick_metric(pathogen: str) -> Tuple[str, str]:
+    p = pathogen.lower().strip()
+    if p in ("covid", "sarscov2", "sars-cov-2"):
+        return ("ed_trends_covid", "covid")
+    if p in ("flu", "influenza", "flu_a", "flu-a"):
+        return ("ed_trends_influenza", "influenza")
+    if p in ("rsv",):
+        return ("ed_trends_rsv", "rsv")
+    if p in ("combined", "all", "respiratory"):
+        return ("__combined__", "combined")
+    raise ValueError("Invalid pathogen. Use: covid, flu, rsv, combined")
+
+
+def _combined_from_three(covid: str, flu: str, rsv: str) -> str:
+    vals = [covid, flu, rsv]
+    inc = sum(1 for v in vals if v == "Increasing")
+    dec = sum(1 for v in vals if v == "Decreasing")
+    if inc >= 2:
+        return "Increasing"
+    if dec >= 2:
+        return "Decreasing"
+    if any(v == "Stable" for v in vals):
+        return "Stable"
+    return "Unknown"
+
+
+def build_summary_for_zip(zip_code: str, *, pathogen: str, weeks: int) -> Summary:
+    geo = zip_to_county(zip_code)
+
+    rows = _fetch_trend_rows_for_state(geo.state_name, weeks=weeks)
+    metric_field, pathogen_norm = _pick_metric(pathogen)
+
+    # De-dupe by week_end: keep the first row we see for a given week_end after ordering DESC.
+    seen_week_ends: set[str] = set()
+    points: List[TrendPoint] = []
+
+    for r in rows:
+        week_end = str(r.get("week_end") or "").strip()
+        if not week_end:
+            continue
+        if week_end in seen_week_ends:
+            continue
+        seen_week_ends.add(week_end)
+
+        if metric_field == "__combined__":
+            covid = _normalize_trend_value(r.get("ed_trends_covid"))
+            flu = _normalize_trend_value(r.get("ed_trends_influenza"))
+            rsv = _normalize_trend_value(r.get("ed_trends_rsv"))
+            v = _combined_from_three(covid, flu, rsv)
+        else:
+            v = _normalize_trend_value(r.get(metric_field))
+
+        points.append(TrendPoint(week_end=week_end, value=v))
+        if len(points) >= weeks:
+            break
 
     last3 = [p.value for p in points[:3]]
     prev3 = [p.value for p in points[3:6]]
@@ -279,127 +273,150 @@ def build_nssp_ed_summary_for_zip(
     last3_mode = _mode(last3)
     prev3_mode = _mode(prev3)
 
-    risk = _risk_from_direction(last3_mode)
-    trend = _trend_from_modes(prev3_mode, last3_mode)
-    conf = _confidence(min(12, len(points)))
+    risk = _risk_from_last3(last3_mode)
+    trend = _trend_label(last3_mode, prev3_mode)
+    confidence = _confidence_from_n(len(points), weeks)
 
     note = None
-    if len(points) == 0:
-        note = "no NSSP ED trend records found for this county in the requested window"
-    elif len(points) < 6:
-        note = "sparse weekly records; trend may be unreliable"
+    if len(points) < 6:
+        note = "Insufficient data points (need >= 6 weeks) to compute stable comparison windows."
 
-    header = {
-        "zip_code": zip_code,
-        "place": place,
-        "state_name": state_name,
-        "state_abbr": state_abbr,
-        "county_name": county_name,
-        "county_fips": county_fips,
-    }
-
-    summary = NsspSummary(
-        region=f"{state_abbr} / {county_name}",
-        metric=pathogen,
+    return Summary(
+        zip_code=str(zip_code),
+        place=geo.place,
+        state_name=geo.state_name,
+        state_abbr=geo.state_abbr,
+        county_name=geo.county_name,
+        county_fips=str(geo.county_fips),
+        generated_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        dataset_id=DATASET_ID,
+        pathogen=pathogen_norm,
+        metric_used=pathogen_norm,
         lookback_weeks=weeks,
-        recent_points=min(12, len(points)),
+        points=points,
         last3_mode=last3_mode,
         prev3_mode=prev3_mode,
         risk=risk,
         trend=trend,
-        confidence=conf,
+        confidence=confidence,
         note=note,
-        recent=[{"week_end": p.week_end, "value": p.value, "metric": p.metric} for p in points[:12]],
+        scores=_scores(risk, trend, confidence),
+        db=None,
     )
 
-    return header, summary
+
+# ---------------------------
+# DB persistence (Postgres)
+# ---------------------------
+
+DDL = """
+CREATE TABLE IF NOT EXISTS nssp_ed_visits_snapshots (
+  id BIGSERIAL PRIMARY KEY,
+  zip_code TEXT NOT NULL,
+  state_abbr TEXT NOT NULL,
+  pathogen TEXT NOT NULL,
+  lookback_weeks INT NOT NULL,
+  generated_at TIMESTAMPTZ NOT NULL,
+  payload JSONB NOT NULL
+);
+"""
 
 
-def print_human(header: Dict[str, Any], summary: NsspSummary) -> None:
-    print(f"ZIP: {header['zip_code']} -> {header['place']}, {header['state_name']} ({header['state_abbr']})")
-    print(f"County: {header['county_name']} | FIPS: {header['county_fips']}")
-    print()
+def _db_connect():
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if not url:
+        raise RuntimeError("DATABASE_URL is not set.")
+    try:
+        import psycopg2  # type: ignore
+    except Exception as e:
+        raise RuntimeError("psycopg2 is not installed in this environment.") from e
+    return psycopg2.connect(url)
+
+
+def db_save(summary: Summary) -> int:
+    payload = asdict(summary)
+    payload["db"] = None  # don't store db field inside itself
+
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(DDL)
+            cur.execute(
+                """
+                INSERT INTO nssp_ed_visits_snapshots
+                  (zip_code, state_abbr, pathogen, lookback_weeks, generated_at, payload)
+                VALUES
+                  (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    summary.zip_code,
+                    summary.state_abbr,
+                    summary.pathogen,
+                    summary.lookback_weeks,
+                    summary.generated_at,  # ISO string is OK; Postgres will cast for TIMESTAMPTZ
+                    json.dumps(payload),
+                ),
+            )
+            new_id = int(cur.fetchone()[0])
+            conn.commit()
+            return new_id
+
+
+# ---------------------------
+# Output
+# ---------------------------
+
+def print_human(summary: Summary) -> None:
+    print(f"ZIP: {summary.zip_code} -> {summary.place}, {summary.state_name} ({summary.state_abbr})")
+    print(f"County: {summary.county_name} | FIPS: {summary.county_fips}\n")
+
     print("CDC NSSP ED Visit Trends (weekly) — direction categories")
-    print(f"Dataset: {SOC_DATASET_ID}")
-    print(f"Metric used: {summary.metric}")
+    print(f"Dataset: {summary.dataset_id}")
+    print(f"Metric used: {summary.metric_used}")
     print(f"Lookback used: {summary.lookback_weeks} weeks")
-    print(f"Recent points shown: {summary.recent_points}")
+    print(f"Recent points shown: {len(summary.points)}")
     print(f"Last-3 mode: {summary.last3_mode}")
     print(f"Prev-3 mode: {summary.prev3_mode}")
     print(f"Risk: {summary.risk} | Trend: {summary.trend} | Confidence: {summary.confidence}")
     if summary.note:
         print(f"Note: {summary.note}")
-    print()
-    print("Most recent weeks:")
-    for p in summary.recent:
-        print(f"- {p['week_end']} | {p['value']} | {p['metric']}")
+
+    if summary.db and summary.db.get("snapshot_id"):
+        print(f"\nSaved snapshot to DB (nssp_ed_visits_snapshots.id={summary.db['snapshot_id']})")
+
+    print("\nMost recent weeks:")
+    for p in summary.points[:12]:
+        print(f"- {p.week_end[:10]} | {p.value} | {summary.metric_used}")
 
 
-def describe() -> None:
-    print("NSSP ED Visit Trends (CDC Socrata)")
-    print(f"Dataset: {SOC_DATASET_ID}")
-    print("Endpoint:", SOC_BASE)
-    print()
-    print("This dataset provides weekly ED visit *trend direction* categories by county FIPS.")
-    print("Typical values: Increasing / No Change / Decreasing")
-    print()
-    print("Key fields commonly present:")
-    print("- week_end")
-    print("- geography (state name)")
-    print("- county")
-    print("- fips (county FIPS)")
-    print("- ed_trends_covid")
-    print("- ed_trends_influenza")
-    print("- ed_trends_rsv")
-    print("- hsa / hsa_counties / hsa_nci_id")
-    print("- trend_source")
-    print("- buildnumber")
-    print()
-    print("Pathogen -> field mapping:")
-    print("- covid    -> ed_trends_covid")
-    print("- flu      -> ed_trends_influenza")
-    print("- rsv      -> ed_trends_rsv")
-    print("- combined -> score rollup across covid/flu/rsv")
+def main() -> int:
+    ap = argparse.ArgumentParser(description="CDC NSSP ED visit trend categories (weekly).")
+    ap.add_argument("zip_code", help="US ZIP code (e.g., 60614)")
+    ap.add_argument("--pathogen", default="combined", help="covid | flu | rsv | combined")
+    ap.add_argument("--weeks", type=int, default=16, help="lookback window in weeks (default 16)")
+    ap.add_argument("--json", action="store_true", help="also print JSON output")
+    ap.add_argument("--json-only", action="store_true", help="print JSON only (no human text)")
+    ap.add_argument("--db", action="store_true", help="save JSON snapshot to Postgres via DATABASE_URL")
+    args = ap.parse_args()
 
+    summary = build_summary_for_zip(args.zip_code, pathogen=args.pathogen, weeks=args.weeks)
 
-def main(argv: Optional[List[str]] = None) -> int:
-    p = argparse.ArgumentParser(description="CDC NSSP ED Visit Trends by ZIP (county FIPS).")
-    p.add_argument("zip_code", nargs="?", help="US ZIP code (e.g., 60614)")
-    p.add_argument("--pathogen", default="combined", choices=list(PATHOGEN_TO_FIELD.keys()))
-    p.add_argument("--weeks", type=int, default=16, help="Lookback window in weeks (default: 16)")
-    p.add_argument("--json", action="store_true", help="Print JSON output")
-    p.add_argument("--describe", action="store_true", help="Describe source + mappings and exit")
+    if args.db:
+        # IMPORTANT FIX: use dataclasses.replace() so TrendPoint objects stay TrendPoint objects
+        try:
+            new_id = db_save(summary)
+            summary = replace(summary, db={"snapshot_id": new_id})
+        except Exception as e:
+            summary = replace(summary, note=_append_note(summary.note, f"DB save failed: {e}"))
 
-    args = p.parse_args(argv)
-
-    if args.describe:
-        describe()
+    if args.json_only:
+        print(json.dumps(asdict(summary), indent=2, default=str))
         return 0
 
-    if not args.zip_code:
-        p.print_help()
-        return 2
-
-    header, summary = build_nssp_ed_summary_for_zip(
-        zip_code=args.zip_code,
-        pathogen=args.pathogen,
-        weeks=args.weeks,
-    )
+    print_human(summary)
 
     if args.json:
-        out = {
-            **header,
-            "generated_date": dt.date.today().isoformat(),
-            "source": "cdc_socrata_nssp_ed_trends",
-            "dataset_id": SOC_DATASET_ID,
-            "weeks_requested": args.weeks,
-            "results": asdict(summary),
-        }
-        print_human(header, summary)
-        print()
-        print(json.dumps(out, indent=2))
-    else:
-        print_human(header, summary)
+        print("\n" + json.dumps(asdict(summary), indent=2, default=str))
 
     return 0
 

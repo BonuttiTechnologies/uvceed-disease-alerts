@@ -1,0 +1,101 @@
+Metadata-Version: 2.4
+Name: epiweeks
+Version: 2.4.0
+Summary: Epidemiological weeks calculation based on CDC and ISO week numbering systems
+Project-URL: Repository, https://github.com/dralshehri/epiweeks
+Project-URL: Issues, https://github.com/dralshehri/epiweeks/issues
+Project-URL: Changelog, https://github.com/dralshehri/epiweeks/blob/main/CHANGELOG.md
+Author: Mohammed Alshehri
+License-Expression: MIT
+License-File: LICENSE
+Keywords: calendar,cdc,epidemiology,epiweek,iso,mmwr,public health,surveillance
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: Healthcare Industry
+Classifier: Intended Audience :: Science/Research
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Programming Language :: Python :: 3.14
+Classifier: Topic :: Scientific/Engineering
+Classifier: Topic :: Utilities
+Classifier: Typing :: Typed
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+
+# EpiWeeks
+
+A Python package for accurate epidemiological weeks calculation using the US CDC (MMWR) and ISO week numbering systems.
+
+EpiWeeks provides reliable week calculations validated against CDC reference data, essential for disease surveillance, public health reporting, and epidemiological research.
+
+## ✨ Features
+
+- Support for both the US CDC (MMWR) and ISO week numbering systems
+- Accurate and tested calculations validated against CDC reference data
+- Intuitive, clean, and easy-to-use interface
+- Calculation of the start and end dates of weeks
+- Iteration of year's weeks or week's dates
+- Rich comparison between weeks
+- Logical operations for weeks (addition, subtraction and containment)
+- Comprehensive input validation and error handling
+- Full type annotations and 100% test coverage
+- Zero runtime dependencies
+
+## 📦 Installation
+
+To install using `uv`, run:
+
+```shell
+uv add epiweeks
+```
+
+To install using `pip`, run:
+
+```shell
+pip install epiweeks
+```
+
+To install using `conda`, run:
+
+```shell
+conda install -c bioconda epiweeks
+```
+
+## 🚀 Basic Usage
+
+```python
+from epiweeks import Week, Year
+
+week = Week(2019, 1)
+print(week.enddate())
+# 2019-01-05
+
+for week in Year(2019).iterweeks():
+    print(week.enddate())
+# 2019-01-05
+# 2019-01-12
+# ...
+# 2019-12-21
+# 2019-12-28
+```
+
+## 📚 Documentation
+
+Please refer to <https://epiweeks.readthedocs.io> for complete documentation on this package, which includes background information, usage examples, and API reference.
+
+## 🤝 Contributing
+
+If you're interested in contributing, please check out the [Contributing](https://github.com/dralshehri/epiweeks/blob/main/CONTRIBUTING.md) guide for more information on how you can help!
+
+## 📄 License
+
+This project is licensed under the terms of the MIT license.
+
+## 📝 Citation
+
+If you plan to cite this project in your academic publication, please refer to <https://doi.org/10.5281/zenodo.18171641> for citation information.
