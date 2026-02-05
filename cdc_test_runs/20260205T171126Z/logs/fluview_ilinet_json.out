@@ -1,0 +1,101 @@
+ZIP: 60614 -> Chicago, Illinois (IL)
+County: Cook County | FIPS: 17031
+
+CDC FluView / ILINet (weekly outpatient ILI)
+Region: IL (state-level)
+Metric used: wili
+Lookback used: 104 weeks
+Recent points shown: 12
+Last-3 median: 2.7
+Prev-3 median: 4.02
+Risk: high | Trend: falling | Confidence: high
+
+Most recent weeks:
+- 202603 | 2.34 | wili
+- 202602 | 2.7 | wili
+- 202601 | 3.09 | wili
+- 202553 | 4.02 | wili
+- 202552 | 4.38 | wili
+- 202551 | 2.74 | wili
+- 202550 | 1.64 | wili
+- 202549 | 1.43 | wili
+- 202548 | 1.31 | wili
+- 202547 | 1.16 | wili
+- 202546 | 1.04 | wili
+- 202545 | 1.03 | wili
+
+{
+  "zip_code": "60614",
+  "place": "Chicago",
+  "state_name": "Illinois",
+  "state_abbr": "IL",
+  "county_name": "Cook County",
+  "county_fips": "17031",
+  "generated_at": "2026-02-05T17:11:51.188571+00:00",
+  "generated_date": "2026-02-05",
+  "source": "delphi_epidata_fluview",
+  "weeks_requested": 12,
+  "results": {
+    "region": "il",
+    "metric": "wili",
+    "lookback_weeks": 104,
+    "recent_points": 12,
+    "last3_median": 2.69781,
+    "prev3_median": 4.02217,
+    "risk": "high",
+    "trend": "falling",
+    "confidence": "high",
+    "note": null,
+    "recent": [
+      {
+        "epiweek": 202603,
+        "wili": 2.33599
+      },
+      {
+        "epiweek": 202602,
+        "wili": 2.69781
+      },
+      {
+        "epiweek": 202601,
+        "wili": 3.09403
+      },
+      {
+        "epiweek": 202553,
+        "wili": 4.02217
+      },
+      {
+        "epiweek": 202552,
+        "wili": 4.38341
+      },
+      {
+        "epiweek": 202551,
+        "wili": 2.74339
+      },
+      {
+        "epiweek": 202550,
+        "wili": 1.63527
+      },
+      {
+        "epiweek": 202549,
+        "wili": 1.42526
+      },
+      {
+        "epiweek": 202548,
+        "wili": 1.31253
+      },
+      {
+        "epiweek": 202547,
+        "wili": 1.1571
+      },
+      {
+        "epiweek": 202546,
+        "wili": 1.03817
+      },
+      {
+        "epiweek": 202545,
+        "wili": 1.034
+      }
+    ]
+  },
+  "db": null
+}

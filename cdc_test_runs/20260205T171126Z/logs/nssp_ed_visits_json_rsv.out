@@ -1,0 +1,32 @@
+{
+  "zip_code": "60614",
+  "place": "Chicago",
+  "state_name": "Illinois",
+  "state_abbr": "IL",
+  "county_name": "Cook County",
+  "county_fips": "17031",
+  "generated_at": "2026-02-05T17:11:34+00:00",
+  "dataset_id": "rdmq-nq56",
+  "pathogen": "rsv",
+  "metric_used": "rsv",
+  "lookback_weeks": 16,
+  "points": [
+    {
+      "week_end": "2026-01-24T00:00:00.000",
+      "value": "Limited Data"
+    }
+  ],
+  "last3_mode": "Limited Data",
+  "prev3_mode": null,
+  "risk": "unknown",
+  "trend": "unknown",
+  "confidence": "low",
+  "note": "Insufficient data points (need >= 6 weeks) to compute stable comparison windows.",
+  "scores": {
+    "risk_score": 0.0,
+    "trend_score": 0.0,
+    "confidence_score": 0.4,
+    "composite_score": 0.0
+  },
+  "db": null
+}
