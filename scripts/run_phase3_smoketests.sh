@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Phase 3 smoke tests (v4)
-# Fixes a bash redirection bug from v3 where the heredoc Python program
-# was replaced by JSON input, causing "NameError: name 'null' is not defined".
-#
+# Phase 3 smoke tests (v5)
 # - Ensures schema
 # - Starts API locally
 # - Calls /health
 # - Calls /signals/latest for a KNOWN zip (default 60614) and validates shape
 # - Prompts user for a NEW zip and calls /signals/latest for it and validates shape
-# - Prints HTTP status + body for transparency
+# - Prints HTTP status + raw body for transparency
+#
+# Fixes JSONDecodeError seen in v4 by avoiding heredoc-vs-stdin confusion.
+# All JSON validation is done via python -c reading from stdin.
 
 PORT="${PORT:-8001}"
 KNOWN_ZIP="${KNOWN_ZIP:-60614}"
@@ -34,38 +34,50 @@ prompt_zip () {
   echo "$z"
 }
 
-pretty_and_check () {
-  # Reads JSON from stdin, validates required shape, pretty-prints.
-  python3 - <<'PY'
+validate_and_pretty () {
+  python3 -c '
 import json,sys
 j=json.load(sys.stdin)
 assert "signals" in j, "missing signals"
 for k in ("wastewater","nssp_ed_visits"):
     assert k in j["signals"], f"missing {k}"
 print(json.dumps(j, indent=2))
-PY
+'
 }
 
-curl_show () {
+warn_if_not_refreshed () {
+  python3 -c '
+import json,sys
+j=json.load(sys.stdin)
+if not j.get("refreshed", False):
+    print("WARN: refreshed=false. This likely means the ZIP already had fresh cached data in signal_snapshots.")
+'
+}
+
+http_get () {
   local path="$1"
   local url="${BASE_URL}${path}"
-  local tmp_body
-  tmp_body="$(mktemp)"
-  local http_code
-  http_code="$(curl -sS "${AUTH_HEADER[@]}" -o "$tmp_body" -w "%{http_code}" "$url" || true)"
+  local tmp
+  tmp="$(mktemp)"
+  local code
+  code="$(curl -sS "${AUTH_HEADER[@]}" -o "$tmp" -w "%{http_code}" "$url" || true)"
+
   echo
-  echo "GET ${path}  -> HTTP ${http_code}"
+  echo "GET ${path}  -> HTTP ${code}"
   echo "---- body ----"
-  cat "$tmp_body"
+  cat "$tmp"
   echo
   echo "--------------"
-  if [[ "$http_code" != "200" ]]; then
-    echo "ERROR: expected HTTP 200, got ${http_code} for ${path}" >&2
-    rm -f "$tmp_body"
+
+  if [[ "$code" != "200" ]]; then
+    echo "ERROR: expected HTTP 200, got ${code} for ${path}" >&2
+    rm -f "$tmp"
     exit 1
   fi
-  cat "$tmp_body" | python3 -c 'import json,sys; j=json.load(sys.stdin); print(json.dumps(j, indent=2))'
-  rm -f "$tmp_body"
+
+  # pretty print (and validate JSON)
+  cat "$tmp" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin), indent=2))'
+  rm -f "$tmp"
 }
 
 echo "Ensuring schema..."
@@ -86,7 +98,7 @@ for i in {1..60}; do
 done
 
 # /health
-curl_show "/health"
+http_get "/health"
 
 # known zip
 echo
@@ -102,7 +114,7 @@ if [[ "$code" != "200" ]]; then
   rm -f "$tmp"
   exit 1
 fi
-cat "$tmp" | pretty_and_check
+cat "$tmp" | validate_and_pretty
 rm -f "$tmp"
 
 # new zip
@@ -122,15 +134,9 @@ if [[ "$code" != "200" ]]; then
   rm -f "$tmp"
   exit 1
 fi
-cat "$tmp" | pretty_and_check
-# Warn if refreshed is false
-python3 - <<'PY' <(cat "$tmp")
-import json,sys
-j=json.load(sys.stdin)
-if not j.get("refreshed", False):
-    print("WARN: refreshed=false. This likely means the ZIP already had fresh cached data in signal_snapshots.")
-PY
+cat "$tmp" | validate_and_pretty
+cat "$tmp" | warn_if_not_refreshed
 rm -f "$tmp"
 
 echo
-echo "OK: Phase 3 smoke tests (v4) passed."
+echo "OK: Phase 3 smoke tests (v5) passed."
